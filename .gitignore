@@ -193,3 +193,5 @@ data/
 .ropeproject/
 .vscode/
 .DS_Store
+.envrc
+.python-virtualenv
