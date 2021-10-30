@@ -1,6 +1,6 @@
 
 include_directories(
-        external/soraxas_cpp_toolbox/include
+        external/cpp-soraxas_toolbox/include
 #        external/autodiff
         external
 )

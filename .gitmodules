@@ -1,6 +1,6 @@
-[submodule "src/external/soraxas_cpp_toolbox"]
-	path = src/external/soraxas_cpp_toolbox
-	url = https://github.com/soraxas/soraxas_cpp_toolbox
+[submodule "src/external/soraxas_toolbox"]
+	path = src/external/cpp-soraxas_toolbox
+	url = https://github.com/soraxas/cpp-soraxas_toolbox
 [submodule "src/external/stats"]
 	path = src/external/stats
 	url = https://github.com/kthohr/stats
