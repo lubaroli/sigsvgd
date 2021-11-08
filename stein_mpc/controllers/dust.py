@@ -1,11 +1,13 @@
 import torch
+from torch import optim
 import torch.distributions as dist
 
 from ..controllers import BaseController
 from ..inference.likelihoods import CostLikelihood, ExponentiatedUtility
 from ..inference.svgd import SVGD, ScaledSVGD
 from ..kernels import BaseKernel, ScaledGaussianKernel
-from ..utils.math import to_gmm
+from ..utils.math import grad_gmm_log_p, to_gmm
+from gpytorch.priors import SmoothedBoxPrior
 
 Empty = torch.Size([])
 
@@ -17,9 +19,11 @@ class DuSt(BaseController):
         action_space,
         hz_len,
         n_pol,
-        pol_samples,
-        init_pol_mean=None,
+        n_pol_samples,
+        n_params_samples=5,
+        pol_mean=None,
         pol_cov=None,
+        pol_hyper_prior=True,
         stein_sampler: str = "SVGD",
         kernel: BaseKernel = ScaledGaussianKernel(),
         likelihood: CostLikelihood = None,
@@ -27,7 +31,6 @@ class DuSt(BaseController):
         inst_cost_fn=None,
         term_cost_fn=None,
         params_sampling=True,
-        params_samples=5,
         params_log_space=False,
         weighted_prior: bool = False,
         roll_strategy="repeat",
@@ -72,7 +75,7 @@ class DuSt(BaseController):
         :type init_actions: torch.Tensor
 
         .. note::
-            * Actions will be clipped according bounding action space regardless
+            * Actions will be clipped according to bounding action space regardless
               of the covariance set. Effectively `epsilon <= (max_a - min_a)`.
         """
         super().__init__(
@@ -80,22 +83,25 @@ class DuSt(BaseController):
         )
         # initialize policies
         self.n_pol = n_pol
-        self.pol_samples = pol_samples
+        self.pol_samples = n_pol_samples
         if pol_cov is None:
             self.pol_cov = torch.eye(self.dim_a)
         else:
             self.pol_cov = pol_cov
-        if init_pol_mean is None:
+        if pol_mean is None:
             self.pol_mean = torch.zeros(self.n_pol, self.hz_len, self.dim_a)
         else:
-            assert init_pol_mean.shape == (
+            assert pol_mean.shape == (
                 self.n_pol,
                 self.hz_len,
                 self.dim_a,
             ), "Initial policies shape mismatch."
-            self.pol_mean = init_pol_mean.clone()
+            self.pol_mean = pol_mean.clone()
         self.pol_weights = torch.ones(self.n_pol)
         self.prior = to_gmm(self.pol_mean, self.pol_weights, self.pol_cov)
+        hyper_prior = (
+            SmoothedBoxPrior(self.min_a, self.max_a, 0.1) if pol_hyper_prior else None
+        )
 
         # configure likelihood
         self.temp = temperature
@@ -105,13 +111,20 @@ class DuSt(BaseController):
             self.likelihood = likelihood
 
         # configure stein sampler
+        self.opt_state = None
         if stein_sampler == "SVGD":
             self.stein_sampler = SVGD(
-                kernel, optimizer_class=optimizer_class, **opt_args,
+                kernel,
+                log_prior=hyper_prior.log_prob,
+                optimizer_class=optimizer_class,
+                **opt_args,
             )
         elif stein_sampler == "ScaledSVGD":
             self.stein_sampler = ScaledSVGD(
-                kernel, optimizer_class=optimizer_class, **opt_args,
+                kernel,
+                log_prior=hyper_prior.log_prob,
+                optimizer_class=optimizer_class,
+                **opt_args,
             )
         else:
             raise ValueError(
@@ -126,17 +139,17 @@ class DuSt(BaseController):
             or params_sampling is None
             or params_sampling == "none"
         ):
-            self.n_params = 1
+            self.params_samples = 1
             self._params_shape = None
         elif params_sampling is True:
-            self.n_params = params_samples
-            self._params_shape = [self.n_params]
+            self.params_samples = n_params_samples
+            self._params_shape = [self.params_samples]
         else:
             raise ValueError(
                 "Invalid value for 'params_sampling': {}.".format(params_sampling)
             )
         # total amount of rollouts
-        self.n_rollouts = self.n_params * self.pol_samples * self.n_pol
+        self.n_rollouts = self.params_samples * self.pol_samples * self.n_pol
         self.w_prior = weighted_prior
         self.roll_strategy = roll_strategy
 
@@ -159,10 +172,10 @@ class DuSt(BaseController):
         term_costs = self.term_cost_fn(x_final, n_pol=self.n_pol, debug=debug)
 
         inst_costs = inst_costs.view(
-            self.n_params, self.pol_samples, self.n_pol, self.hz_len
+            self.params_samples, self.pol_samples, self.n_pol, self.hz_len
         )
         inst_costs = inst_costs.sum(dim=-1)  # sum over control horizon
-        term_costs = term_costs.view(self.n_params, self.pol_samples, self.n_pol)
+        term_costs = term_costs.view(self.params_samples, self.pol_samples, self.n_pol)
         state_cost = (inst_costs + term_costs).mean(0)  # avg costs over params
         return state_cost
 
@@ -201,7 +214,7 @@ class DuSt(BaseController):
             params_dict = None
         # flatten policies into single dim and repeat for each sampled param
         actions = actions.reshape(-1, self.hz_len, self.dim_a).repeat(
-            self.n_params, 1, 1
+            self.params_samples, 1, 1
         )
         # expand initial state to the total amount of rollouts
         states = init_state.expand(self.n_rollouts, 1, -1).clone()
@@ -227,22 +240,21 @@ class DuSt(BaseController):
 
     def _get_loss(self, state, actions, model, params_dist):
         states, params_dict = self._rollout(state, actions, model, params_dist)
-        costs = self._compute_cost(states, actions, debug=True)
+        costs = self._compute_cost(states, actions, debug=False)
         loss = self.likelihood.log_prob(costs)
-        return loss, costs
+        return loss, costs, states, params_dict
 
     def _get_grad_log_p(self, loss, actions):
         # likelihood gradient
+        # TODO: add option to use log likelihood trick
         grad_lik = torch.autograd.grad(loss.sum(), actions)[0]
         # prior gradient
-        # TODO: change to GMM analytic
-        grad_pri = torch.autograd.grad(self.prior.log_prob(actions).sum(), actions)[0]
+        grad_pri = grad_gmm_log_p(self.prior, actions)
         grad_log_p = grad_pri + grad_lik
         return grad_log_p
 
     def _get_weights(self, costs):
-        """
-        Computes particles weights based on raw costs.
+        """Computes particles weights based on raw costs.
         """
         log_l = self.likelihood.log_prob(costs)
         log_p = self.prior.log_prob(self.pol_mean)
@@ -257,8 +269,40 @@ class DuSt(BaseController):
         actions = pi.rsample([self.pol_samples])
         return actions
 
+    def _update_optimizer(self):
+        """Updates the optimizer state after performing a shift operation on policies.
+        """
+        steps = -1 * self.dim_a
+        if self.stein_sampler.optimizer_class == optim.LBFGS:
+            tensors = ["d", "prev_flat_grad"]
+            for v in tensors:
+                new_v = self.opt_state["state"][0][v]
+                new_v = new_v.roll(steps)
+                new_v[steps:] = 0  # add zeros at the end of tensor
+                self.opt_state["state"][0][v] = new_v
+            lists = ["old_dirs", "old_stps"]
+            for v in lists:
+                new_v = self.opt_state["state"][0][v]
+                if len(new_v) != 0:
+                    if len(new_v) == 1:
+                        new_v = new_v[0].unsqueeze(-1)
+                    else:
+                        new_v = torch.stack(new_v, dim=1)
+                    new_v = new_v.roll(steps, dims=0)
+                    new_v[steps:] = 0  # add zeros at the end of tensor
+                    self.opt_state["state"][0][v] = [
+                        new_v[:, i] for i in range(new_v.shape[-1])
+                    ]
+
+    def _update_prior(self, weights=None):
+        if self.w_prior and weights is not None:
+            self.pol_weights = weights
+        else:
+            self.pol_weights = torch.ones_like(self.pol_weights)
+        self.prior = to_gmm(self.pol_mean, self.pol_weights, self.pol_cov)
+
     def roll(self, steps=-1, strategy="repeat"):
-        self.pol_mean.clamp_(self.min_a, self.max_a)
+        # self.pol_mean.clamp_(self.min_a, self.max_a)
         # roll along time axis
         self.pol_mean = self.pol_mean.roll(steps, dims=-2)
         if strategy == "repeat":
@@ -278,15 +322,9 @@ class DuSt(BaseController):
         # # update optimizer params
         # self.optimizer.param_groups[0]["params"][0] = self.pol_mean
 
-    def _update_prior(self, weights=None):
-        if self.w_prior and weights is not None:
-            self.pol_weights = weights
-        else:
-            self.pol_weights = torch.ones_like(self.pol_weights)
-        self.prior = to_gmm(self.pol_mean, self.pol_weights, self.pol_cov)
-
     def forward(self, state, model, params_dist, steps=5):
-        """
+        """Computes the next sequence of actions and updates the controller state.
+
             Called after the SVGD loop.
             1. Evaluate weights on updated stein particles : requires
             re-estimating the gradients on likelihood and prior for the new
@@ -302,31 +340,36 @@ class DuSt(BaseController):
         def score_estimator(X):
             # X requires_grad will be set by Stein Sampler
             iter_dict = {}
-            actions = self._sample_actions(X.reshape_as(self.pol_mean))
-            loss, costs = self._get_loss(state, actions, model, params_dist)
+            # actions = self._sample_actions(X.reshape_as(self.pol_mean))
+            actions = self._sample_actions(X)
+            loss, costs, trajectories, params_dict = self._get_loss(
+                state, actions, model, params_dist
+            )
             # sum gradient along actions samples and flatten for stein
             grad_log_p = self._get_grad_log_p(loss, actions).sum(0).flatten(1)
             iter_dict["actions"] = actions.detach()
             iter_dict["costs"] = costs.detach()
             iter_dict["loss"] = loss.detach()
+            iter_dict["trajectories"] = trajectories.detach()
+            iter_dict["dyn_params"] = params_dict
             return grad_log_p, iter_dict
 
         # stein needs particles of shape [batch, dim], so hz_len and dim_a are flatten
-        actions_seq, data = self.stein_sampler.optimize(
-            self.pol_mean.flatten(1), score_estimator, steps
+        pol_actions, data_dict, self.opt_state = self.stein_sampler.optimize(
+            self.pol_mean, score_estimator, self.opt_state, steps
         )
         # to compute the weights, we may either re-sample the likelihood to get the
         # expected cost of the new θ_i or re-use the costs computed during the
         # `optimize` step to save computation.
-        p_weights = self._get_weights(data[-1]["costs"])
+        pol_weights = self._get_weights(data_dict[-1]["costs"])
 
         # Pick best particle
-        i_star = p_weights.argmax()
+        i_star = pol_weights.argmax()
         a_seq = self.pol_mean[i_star].detach().clone()
 
         # roll thetas for next step
-        # TODO: Should this be clamped?
-        self.roll(steps, self.roll_strategy)
+        self.roll(strategy=self.roll_strategy)
+        self._update_optimizer()
         # and set the mixture of the new prior
-        self._update_prior(p_weights)
-        return a_seq, p_weights
+        self._update_prior(pol_weights)
+        return a_seq, data_dict

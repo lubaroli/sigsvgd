@@ -29,8 +29,8 @@ def bw_median(
     sq_dists: torch.Tensor, bw_scale: float = 1.0, tol: float = 1.0e-8
 ) -> torch.Tensor:
     h = torch.median(sq_dists)
-    h = 0.5 * h / torch.tensor(sq_dists.shape[0] + 1.0).log()
-    # h = bw_scale * h.sqrt()
+    h = h / torch.tensor(sq_dists.shape[0] + 1.0).log()
+    h = bw_scale * h.sqrt()
     return h.clamp_min_(tol)
 
 
@@ -150,3 +150,10 @@ def to_gmm(
     mix = dist.Categorical(weights)
     comp = dist.Independent(dist.MultivariateNormal(x.detach(), covariance), 1)
     return dist.mixture_same_family.MixtureSameFamily(mix, comp)
+
+
+def grad_gmm_log_p(p: torch.distributions.MixtureSameFamily, samples: torch.tensor):
+    mu = p.component_distribution.mean
+    cov = p.component_distribution.variance
+    grad = -(samples - mu) / cov
+    return grad

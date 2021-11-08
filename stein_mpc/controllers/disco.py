@@ -10,7 +10,7 @@ from ..utils.utf import MerweScaledUTF
 Empty = th.Size([])
 
 
-class MultiDISCO(BaseController):
+class DISCO(BaseController):
     """Implements an variation of the IT-MPC controller as defined in [1]_ for
     OpenAI Gym environments.
 
@@ -23,7 +23,6 @@ class MultiDISCO(BaseController):
         observation_space,
         action_space,
         hz_len,
-        n_pol,
         pol_samples,
         pol_cov=None,
         temperature=1.0,
@@ -33,7 +32,7 @@ class MultiDISCO(BaseController):
         params_sampling=True,
         params_samples=4,
         params_log_space=False,
-        init_actions=None,
+        init_policy=None,
         **kwargs
     ):
         """Constructor for MultiDISCO.
@@ -89,7 +88,6 @@ class MultiDISCO(BaseController):
             term_cost_fn,
             **kwargs
         )
-        self.n_pol = n_pol
         self.n_actions = pol_samples
         self.temp = temperature
         self.a_reg = temperature * (1 - ctrl_penalty)
@@ -102,17 +100,11 @@ class MultiDISCO(BaseController):
         self.a_pre = th.inverse(pol_cov)
         # `a_seq` is the current control plan
         self.a_seq = th.zeros((self.hz_len, self.dim_a))
-        # Since we have multiple controllers, we now have a matrix of action
-        # sequences.
-        if init_actions is None:
-            self.a_mat = th.zeros(self.n_pol, *self.a_seq.shape)
-        else:
-            assert init_actions.shape == (
-                self.n_pol,
+        if init_policy is not None:
+            assert init_policy.shape == (
                 *self.a_seq.shape,
             ), "Initial actions shape mismatch."
-            self.a_mat = init_actions.clone()
-        self.a_mix = th.ones(self.n_pol)
+            self.a_seq = init_policy.clone()
 
         self._params_sampling = params_sampling
         self._params_log_space = params_log_space
@@ -141,9 +133,9 @@ class MultiDISCO(BaseController):
                 "Invalid value for 'params_sampling': {}".format(params_sampling)
             )
         # total amount of rollouts
-        self.n_rollouts = self.n_params * self.n_actions * self.n_pol
+        self.n_rollouts = self.n_params * self.n_actions
 
-    def _rollout(self, state, model, params_dist, ext_actions):
+    def _rollout(self, state, model, params_dist):
         """Perform rollouts based on current state and control plan.
 
         :param model: A model object which provides a `step` function to
@@ -159,16 +151,9 @@ class MultiDISCO(BaseController):
         :returns: A tuple of (actions, states, eps) for `n_actions` rollouts.
         :rtype: (th.Tensor, th.Tensor, th.Tensor)
         """
-        if ext_actions is None:
-            # sample actions based on `n_actions`
-            eps = self.a_dist.sample(
-                sample_shape=[self.n_actions, self.n_pol, self.hz_len]
-            )
-            actions = th.add(eps, self.a_mat)
-        else:
-            # create eps from the difference between external actions and planned a_seq
-            actions = ext_actions.clone()
-            eps = th.add(actions, -self.a_seq)
+        # sample actions based on `n_actions`
+        eps = self.a_dist.sample(sample_shape=[self.n_actions, self.hz_len])
+        actions = th.add(eps, self.a_seq)
 
         # prepare tensors for batch rollout
         if self._params_shape is not None:  # sample params from `params_dist`
@@ -181,18 +166,14 @@ class MultiDISCO(BaseController):
                 params = params.exp()
             # repeat and reshape so each param is applied to all `n_actions`
             # (just using repeat would replicate the batch and wouldn't work)
-            params = params.repeat(1, self.n_actions * self.n_pol).reshape(
-                -1, dim_params
-            )
+            params = params.repeat(1, self.n_actions).reshape(-1, dim_params)
             # create dict with `uncertain_params` as keys for `model.step()`
             params_dict = model.params_to_dict(params)
         else:  # use default `model` params
             params_dict = None
             params_log_p = None
-        # flatten policies into single dim and repeat for each sampled param
-        actions = actions.reshape(-1, self.hz_len, self.dim_a).repeat(
-            self.n_params, 1, 1
-        )
+        # repeat policy for each sampled param
+        actions = actions.repeat(self.n_params, 1, 1)
         # expand initial state to the total amount of rollouts
         states = state.expand(self.n_rollouts, 1, -1).clone()
 
@@ -207,12 +188,8 @@ class MultiDISCO(BaseController):
             )
 
         # restore vectors dims, `n_params` is now first dimension
-        states = states.reshape(
-            -1, self.n_actions, self.n_pol, self.hz_len + 1, self.dim_s
-        )
-        actions = actions.reshape(
-            -1, self.n_actions, self.n_pol, self.hz_len, self.dim_a
-        )
+        states = states.reshape(-1, self.n_actions, self.hz_len + 1, self.dim_s)
+        actions = actions.reshape(-1, self.n_actions, self.hz_len, self.dim_a)
         return states, actions, eps, params_log_p
 
     def _sigma_rollout(self, state, model, params_dist, ext_actions):

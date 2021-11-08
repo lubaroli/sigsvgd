@@ -3,7 +3,7 @@
 3. When shifting timesteps in MPC, how to keep Hessian approximation history in L-BFGS? Do a rank 1 approximation?
 4. Should the median heuristic have the 0.5 factor? Why?
 5. Could the norm of the bound on the stein velocity norm be used to dynamically adjust the step size?
-6. Should we add a control cost term to SVMPC and SQNMPC rollouts?
+6. Should we add a control cost term to SVMPC and SQNMPC rollouts? Maybe clamp actions?
 7. In stein MPC, should the SVGD prior be a GMM with independent dimensions along the control horizon or a summation of Multivariate Gaussians?
 
 Debug matrix_svgd

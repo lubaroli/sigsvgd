@@ -112,7 +112,7 @@ class GaussianKernel(BaseKernel):
         K = (gamma * sq_dists).exp()
         if compute_grad:
             d_K = -(X.unsqueeze(1) - Y) / (h ** 2) * K.unsqueeze(-1)
-            return K, d_K.sum(1)
+            return K, d_K
         else:
             return K
 
@@ -179,8 +179,8 @@ class ScaledGaussianKernel(BaseKernel):
         gamma = -0.5 / h ** 2
         K = (gamma * sq_dists).exp()
         if compute_grad:
-            d_K = -sq_dists_grad / (h ** 2) * K.unsqueeze(-1)
-            return K, d_K.sum(1)
+            d_K = -sq_dists_grad * K.unsqueeze(-1) / (h ** 2)
+            return K, d_K
         else:
             return K
 
@@ -230,7 +230,7 @@ class IMQKernel(BaseKernel):
         K = denom ** -0.5
         if compute_grad:
             d_K = -0.5 * (denom.unsqueeze(-1) ** -1.5) * ((Y - X.unsqueeze(1)) / h ** 2)
-            return K, d_K.sum(1)
+            return K, d_K
         else:
             return K
 
@@ -287,6 +287,6 @@ class ScaledIMQKernel(BaseKernel):
         K = denom ** -0.5
         if compute_grad:
             d_K = -0.5 * (denom.unsqueeze(-1) ** -1.5) * (sq_dists_grad / h ** 2)
-            return K, d_K.sum(1)
+            return K, d_K
         else:
             return K

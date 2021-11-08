@@ -4,7 +4,7 @@ from stein_mpc.models.skid_steer_robot import SkidSteerRobot
 import torch as th
 from tqdm import trange
 
-from stein_mpc.controllers.disco import MultiDISCO
+from stein_mpc.controllers.disco import DISCO
 from stein_mpc.inference.likelihoods import ExponentiatedUtility
 from stein_mpc.kernels.base_kernels import RBF
 from stein_mpc.kernels.composite_kernels import iid_mp
@@ -46,7 +46,7 @@ def run_sim(steps):
     def cost_function(x, *args, **kwargs):
         return state_cost(x, target_pos, max_linear_speed, *args, **kwargs)
 
-    controller = MultiDISCO(
+    controller = DISCO(
         model.observation_space,
         model.action_space,
         hz_len,

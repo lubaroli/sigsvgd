@@ -2,10 +2,11 @@ import sys
 from pathlib import Path
 
 import altair as alt
+import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
-import torch as th
+import torch
 import torch.distributions as dist
 import yaml
 
@@ -29,18 +30,20 @@ def _label(data, color, label):
 
 def _create_df(data, gmm_std_dev, steps, n_plots):
     if steps is None:
-        steps = th.arange(0, data.shape[0], int(data.shape[0] / n_plots))
-        steps = th.cat([steps, th.as_tensor(data.shape[0] - 1).unsqueeze(0)])
+        steps = torch.arange(0, data.shape[0], int(data.shape[0] / n_plots))
+        steps = torch.cat([steps, torch.as_tensor(data.shape[0] - 1).unsqueeze(0)])
     else:
-        steps = th.as_tensor(steps)
+        steps = torch.as_tensor(steps)
         steps = steps[steps < len(data)]
     particles = data[steps]
-    x_min = th.floor(particles.min() - 0.25)
-    x_max = th.ceil(particles.max() + 0.25)
-    mix = dist.Categorical(th.ones_like(particles))
-    comp = dist.Normal(loc=particles, scale=gmm_std_dev ** 2 * th.ones_like(particles))
+    x_min = torch.floor(particles.min() - 0.25)
+    x_max = torch.ceil(particles.max() + 0.25)
+    mix = dist.Categorical(torch.ones_like(particles))
+    comp = dist.Normal(
+        loc=particles, scale=gmm_std_dev ** 2 * torch.ones_like(particles)
+    )
     densities = dist.MixtureSameFamily(mix, comp)
-    x = th.arange(x_min, x_max, 0.01)
+    x = torch.arange(x_min, x_max, 0.01)
     probs = densities.log_prob(x.repeat(len(steps), 1).T).exp().T
     # pts = particles.shape[1]
     pts = x.shape[0]
@@ -76,7 +79,7 @@ def plot_mean_results(
     color_key: str = "Case",
 ):
     try:
-        source = th.load(data_path / "data.pkl")
+        source = torch.load(data_path / "data.pkl")
         source = pd.DataFrame(source)
         source["CumCost"] = source["AvgCumCost"] * (source["Timestep"] + 1)
         columns = ["Case", y_key, x_key]
@@ -221,19 +224,19 @@ def plot_part2d_cost(paths: list, labels: list, kwargs={}, cmap="Blues"):
     sns.set_theme(context="paper", palette="colorblind")
     sns.despine()
     for path, label in zip(paths, labels):
-        cost_batch = th.tensor([])
+        cost_batch = torch.tensor([])
         for ep_path in [p for p in path.iterdir() if p.is_dir() and p.stem != "plots"]:
             try:
-                data = th.load(ep_path / "data.pkl")
-                costs = th.as_tensor(data["costs"])
+                data = torch.load(ep_path / "data.pkl")
+                costs = torch.as_tensor(data["costs"])
                 ep_length = costs.shape[0]
                 if ep_length < sim_length:
                     # repeat penultimate cost until the end of the episode
-                    res = th.ones(sim_length) * costs[-2]
+                    res = torch.ones(sim_length) * costs[-2]
                     res[: ep_length - 1] = costs[:-1].flatten()
                 else:
                     res = costs
-                cost_batch = th.cat([cost_batch, res.view(1, -1)], 0)
+                cost_batch = torch.cat([cost_batch, res.view(1, -1)], 0)
             except IOError:
                 print("Couldn't load data file from '{}'.".format(ep_path / "data.pkl"))
         if cost_batch.shape[0] > 0:
@@ -241,7 +244,7 @@ def plot_part2d_cost(paths: list, labels: list, kwargs={}, cmap="Blues"):
             std_cost = cost_batch.std(0)
             plt.plot(mean_cost, label=label, **kwargs)
             plt.fill_between(
-                th.arange(0, 400, 1),
+                torch.arange(0, 400, 1),
                 mean_cost - std_cost,
                 mean_cost + std_cost,
                 alpha=0.3,
@@ -273,7 +276,7 @@ def plot_part2d_traj(path: Path, traj_kwargs={}, marker_kwargs={}, cmap="binary"
     traj_crashed = []
     for ep_path in [p for p in path.iterdir() if p.is_dir() and p.stem != "plots"]:
         try:
-            data = th.load(ep_path / "data.pkl")
+            data = torch.load(ep_path / "data.pkl")
             if data["costs"][-1] >= 1e6:  # if crashed
                 traj_crashed.append(True)
             else:
@@ -317,8 +320,8 @@ def plot_dist_ridgeplot(path: Path, gmm_std_dev=0.1, steps=None, n_plots=5):
     config_data = _load_config_data(path)
     try:
         log_space = config_data["exp_params"]["mpf_log_space"]
-        initial_mass = th.tensor(
-            config_data["exp_params"]["dyn_prior_arg1"], dtype=th.float32
+        initial_mass = torch.tensor(
+            config_data["exp_params"]["dyn_prior_arg1"], dtype=torch.float32
         )
         final_mass = initial_mass + config_data["exp_params"]["extra_load"]
         switchover = config_data["exp_params"]["steps"] / 4
@@ -328,7 +331,7 @@ def plot_dist_ridgeplot(path: Path, gmm_std_dev=0.1, steps=None, n_plots=5):
     data_batch = []
     for ep_path in [p for p in path.iterdir() if p.is_dir() and p.stem != "plots"]:
         try:
-            ep_data = th.load(ep_path / "data.pkl")
+            ep_data = torch.load(ep_path / "data.pkl")
         except IOError as e:
             print("Couldn't load data file.")
             sys.exit(e)
@@ -341,7 +344,7 @@ def plot_dist_ridgeplot(path: Path, gmm_std_dev=0.1, steps=None, n_plots=5):
     # generate plots
     for ep_idx, ep in enumerate(data_batch):
         df, steps = _create_df(ep, gmm_std_dev, steps, n_plots)
-        latent_vals = th.where(steps < switchover, initial_mass, final_mass)
+        latent_vals = torch.where(steps < switchover, initial_mass, final_mass)
 
         # Initialize the FacetGrid object
         sns.set_theme(style="white", rc={"axes.facecolor": (0, 0, 0, 0)})
@@ -386,3 +389,55 @@ def plot_dist_ridgeplot(path: Path, gmm_std_dev=0.1, steps=None, n_plots=5):
             save_path.parent.mkdir()
         plt.savefig(save_path, bbox_inches="tight")
     plt.close()
+
+
+def create_2d_particles_movie(
+    x_all, log_p, n_grid=100, n_iter=100, save_path=Path("stein_particles.mp4")
+):
+    fig = plt.figure(figsize=(8, 8))
+    plt.tight_layout()
+    ax = fig.add_subplot(111)
+    x = torch.linspace(-10, 10, n_grid)
+    y = torch.linspace(-10, 10, n_grid)
+    X, Y = torch.meshgrid(x, y)
+    p = log_p(torch.hstack((X.reshape(-1, 1), Y.reshape(-1, 1)))).exp()
+    Z = p.reshape(n_grid, n_grid)
+
+    ax.set_title(str(0) + "$ ^{th}$ iteration")
+    (markers,) = ax.plot(x_all[0][:, 0], x_all[0][:, 1], "ro", markersize=5)
+    plt.axis([-10, 10, -10, 10])
+    # plt.contourf(X, Y, Z.data.numpy(), 30)
+    plt.contourf(X, Y, Z, 30)
+
+    def _init():  # only required for blitting to give a clean slate.
+        ax.set_title(str(0) + "$ ^{th}$ iteration")
+        return (markers,)
+
+    def _animate(i):
+        if i <= n_iter:
+            ax.set_title(str(i) + "$ ^{th}$ iteration")
+            markers.set_xdata(x_all[i][:, 0])  # update particles
+            markers.set_ydata(x_all[i][:, 1])  # update particles
+            yield markers
+
+    ani = animation.FuncAnimation(
+        fig, _animate, init_func=_init, interval=100, blit=True, save_count=n_iter
+    )
+    ani.save(save_path, bitrate=500)
+
+
+def plot_2d_particles(x_all, step, log_p, n_grid=100):
+    x = torch.linspace(-10, 10, n_grid)
+    y = torch.linspace(-10, 10, n_grid)
+    X, Y = torch.meshgrid(x, y)
+    p = log_p(torch.hstack((X.reshape(-1, 1), Y.reshape(-1, 1)))).exp()
+    Z = p.reshape(n_grid, n_grid)
+
+    plt.figure(figsize=(8, 8))
+    plt.tight_layout()
+    # plt.contourf(X, Y, Z.data.numpy(), 30)
+    plt.contourf(X, Y, Z, 30)
+    plt.xlim([-10, 10])
+    plt.ylim([-10, 10])
+    plt.plot(x_all[step][:, 0], x_all[step][:, 1], "ro", markersize=5)
+    plt.show()

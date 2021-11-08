@@ -1,100 +1,63 @@
 import time
 
-import matplotlib.animation as animation
-import matplotlib.pyplot as plt
-import numpy as np
 import torch
 import torch.distributions as dist
-import torch.optim as optim
-from stein_mpc.inference.svgd import ScaledSVGD
+from gpytorch.priors import SmoothedBoxPrior
+from stein_mpc.inference.svgd import SVGD, ScaledSVGD
 from stein_mpc.kernels import ScaledGaussianKernel
 from stein_mpc.LBFGS import FullBatchLBFGS
+from stein_mpc.utils.plots import create_2d_particles_movie
+from stein_mpc.models.environment import star_gaussian
 
-torch.random.manual_seed(42)
-N_ITER = 100
+# torch.random.manual_seed(42)
+# torch.set_default_dtype(torch.float64)
+N_ITER = 200
 BATCH = 100
 DIM = 2
-
-
-def create_movie_2D(x_all, log_p):
-    fig = plt.figure(figsize=(8, 8))
-    plt.tight_layout()
-    ax = fig.add_subplot(111)
-    ngrid = 100
-    x = np.linspace(-10, 10, ngrid)
-    y = np.linspace(-10, 10, ngrid)
-    X, Y = torch.tensor(np.meshgrid(x, y))
-    Z = torch.exp(log_p(torch.vstack((torch.flatten(X), torch.flatten(Y))).T)).reshape(
-        ngrid, ngrid
-    )
-
-    ax.set_title(str(0) + "$ ^{th}$ iteration")
-    (markers,) = ax.plot(x_all[0][:, 0], x_all[0][:, 1], "ro", markersize=5)
-    plt.axis([-10, 10, -10, 10])
-    plt.contourf(X, Y, Z.data.numpy(), 30)
-
-    def _init():  # only required for blitting to give a clean slate.
-        ax.set_title(str(0) + "$ ^{th}$ iteration")
-        return (markers,)
-
-    def _animate(i):
-        if i <= N_ITER:
-            ax.set_title(str(i) + "$ ^{th}$ iteration")
-            markers.set_xdata(x_all[i][:, 0])  # update particles
-            markers.set_ydata(x_all[i][:, 1])  # update particles
-            yield markers
-
-    ani = animation.FuncAnimation(
-        fig, _animate, init_func=_init, interval=100, blit=True, save_count=N_ITER
-    )
-    ani.save("tests/stein_movie_2D.mp4")
-
-
-def plot_graph_2d(x_all, i, log_p):
-    n_grid = 100
-    x = np.linspace(-10, 10, n_grid)
-    y = np.linspace(-10, 10, n_grid)
-    X, Y = torch.tensor(np.meshgrid(x, y))
-    Z = torch.exp(log_p(torch.vstack((torch.flatten(X), torch.flatten(Y))).T)).reshape(
-        n_grid, n_grid
-    )
-
-    plt.figure(figsize=(8, 8))
-    plt.tight_layout()
-    plt.contourf(X, Y, Z.data.numpy(), 30)
-    plt.xlim([-10, 10])
-    plt.ylim([-10, 10])
-    plt.plot(x_all[i][:, 0], x_all[i][:, 1], "ro", markersize=5)
-    plt.show()
+LR = 0.2
 
 
 if __name__ == "__main__":
     X0 = torch.randn([BATCH, DIM])
+    X0 = X0.uniform_(-8, 8)
     X = X0.clone()
-    kernel = ScaledGaussianKernel(bandwidth_fn=lambda *args: 1.0)
+    # kernel = ScaledGaussianKernel(bandwidth_fn=lambda *args: DIM ** 0.5)
+    # kernel.analytic_grad = False
+    kernel = ScaledGaussianKernel()
 
-    optimizer = "LBFGS"
-    if optimizer == "Adam":
-        # Params for Adam
-        opt = optim.Adam
+    optimizer = "adam"
+    if optimizer.lower() == "adam":
+        opt = torch.optim.Adam
         opt_kwargs = {
-            "lr": 0.1,
+            "lr": LR,
         }
-    elif optimizer == "FullBatch":
+    elif optimizer.lower() == "adagrad":
+        opt = torch.optim.Adagrad
+        opt_kwargs = {
+            "lr": LR,
+        }
+    elif optimizer.lower() == "sgd":
+        opt = torch.optim.SGD
+        opt_kwargs = {
+            "lr": LR,
+        }
+    elif optimizer.lower() == "fullbatch":
         # Params for FullBatchLBFGS
-        optimizer = FullBatchLBFGS
-        optimizer_kwargs = {
-            "lr": 1.0,
+        opt = FullBatchLBFGS
+        opt_kwargs = {
+            "lr": LR,
             "line_search": "None",
         }
-    else:
+    elif optimizer.lower() == "lbfgs":
         # Params for LBFGS
-        opt = optim.LBFGS
+        opt = torch.optim.LBFGS
         opt_kwargs = {
-            "lr": 1.0,
+            "lr": LR,
             "max_iter": 1,
             "line_search_fn": None,
         }
+    else:
+        raise ValueError("Invalid optimizer: {}".format(optimizer))
 
     # Parameters for the test distribution
     w = torch.tensor([0.5, 0.5])
@@ -102,16 +65,42 @@ if __name__ == "__main__":
     var = torch.tensor([[1.5, 1.5], [1.5, 1.5]])
     mix = dist.Categorical(w)
     comp = dist.Independent(dist.Normal(mean, var), 1)
+    lik = dist.MixtureSameFamily(mix, comp)
+    pri = SmoothedBoxPrior(-1, 5, sigma=0.1)
 
-    log_p = dist.MixtureSameFamily(mix, comp).log_prob
+    env = star_gaussian(50, 5)  # star gaussian mixture example
 
-    svgd = ScaledSVGD(
-        kernel=kernel, p_log_prob=log_p, optimizer_class=opt, **opt_kwargs
-    )
+    log_p = lik.log_prob
+    log_prior = pri.log_prob
+    # log_prior = None
+
+    stein_method = "scaled"
+    if stein_method.lower() == "svgd":
+        stein_sampler = SVGD(
+            kernel, log_p, log_prior, optimizer_class=opt, **opt_kwargs
+        )
+    else:
+        stein_sampler = ScaledSVGD(
+            kernel,
+            log_p,
+            log_prior,
+            optimizer_class=opt,
+            precondition=True,
+            **opt_kwargs,
+        )
 
     start = time.process_time()
-    X_all, _ = svgd.optimize(X, n_steps=N_ITER)
+    X_all = stein_sampler.optimize(X, n_steps=N_ITER)[0]
 
-    print(time.process_time() - start)
-    create_movie_2D(X_all.numpy(), log_p)
+    # uncomment this code to test resetting the optimizer at every timestep
+    # X_all = []
+    # for step in range(N_ITER):
+    #     stein_sampler.step(X)
+    #     X_all.append(X.clone().detach().numpy())
+
+    print(f"Time taken: {time.process_time() - start:.2f} seconds.")
+    print("Creating movie...")
+    create_2d_particles_movie(
+        X_all, log_p, n_iter=N_ITER, save_path="tests/results/stein_movie_2D.mp4"
+    )
     print("Done.")
