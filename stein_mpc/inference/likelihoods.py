@@ -73,20 +73,11 @@ class CostLikelihood(ABC):
         pass
 
 
-class ExpectedCost(CostLikelihood):
-    def __init__(self, alpha: float, **kwargs):
-        super().__init__(alpha, **kwargs)
-
-    def log_prob(self, costs: torch.Tensor = None):
-        return -costs.mean(dim=0) / self.alpha
-
-
 class ExponentiatedUtility(CostLikelihood):
     def __init__(self, alpha: float, **kwargs):
         super().__init__(alpha, **kwargs)
 
     def log_prob(self, costs: torch.Tensor):
-        n_samples, _ = costs.shape
-        log_ns = torch.tensor(n_samples).log()
-        log_p = (-costs / self.alpha).logsumexp(0) - log_ns
-        return log_p
+        """Computes the log likelihood of a batch of cost samples with shape [batch, dim].
+        """
+        return (-1 / self.alpha) * (costs - costs.min())

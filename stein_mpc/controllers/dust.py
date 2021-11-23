@@ -33,6 +33,7 @@ class DuSt(BaseController):
         params_sampling=True,
         params_log_space=False,
         weighted_prior: bool = False,
+        autograd: bool = False,
         roll_strategy="repeat",
         optimizer_class=torch.optim.Adam,
         **opt_args,
@@ -100,7 +101,9 @@ class DuSt(BaseController):
         self.pol_weights = torch.ones(self.n_pol)
         self.prior = to_gmm(self.pol_mean, self.pol_weights, self.pol_cov)
         hyper_prior = (
-            SmoothedBoxPrior(self.min_a, self.max_a, 0.1) if pol_hyper_prior else None
+            SmoothedBoxPrior(self.min_a, self.max_a, 0.1).log_prob
+            if pol_hyper_prior
+            else None
         )
 
         # configure likelihood
@@ -115,14 +118,23 @@ class DuSt(BaseController):
         if stein_sampler == "SVGD":
             self.stein_sampler = SVGD(
                 kernel,
-                log_prior=hyper_prior.log_prob,
+                log_prior=hyper_prior,
                 optimizer_class=optimizer_class,
                 **opt_args,
             )
         elif stein_sampler == "ScaledSVGD":
             self.stein_sampler = ScaledSVGD(
                 kernel,
-                log_prior=hyper_prior.log_prob,
+                log_prior=hyper_prior,
+                precondition=False,
+                optimizer_class=optimizer_class,
+                **opt_args,
+            )
+        elif stein_sampler == "MatrixSVGD":
+            self.stein_sampler = ScaledSVGD(
+                kernel,
+                log_prior=hyper_prior,
+                precondition=True,
                 optimizer_class=optimizer_class,
                 **opt_args,
             )
@@ -151,6 +163,7 @@ class DuSt(BaseController):
         # total amount of rollouts
         self.n_rollouts = self.params_samples * self.pol_samples * self.n_pol
         self.w_prior = weighted_prior
+        self.autograd = autograd
         self.roll_strategy = roll_strategy
 
     def _compute_cost(self, states, actions, debug=False):
@@ -238,36 +251,44 @@ class DuSt(BaseController):
         )
         return states, params_dict
 
-    def _get_loss(self, state, actions, model, params_dist):
-        states, params_dict = self._rollout(state, actions, model, params_dist)
-        costs = self._compute_cost(states, actions, debug=False)
-        loss = self.likelihood.log_prob(costs)
-        return loss, costs, states, params_dict
-
-    def _get_grad_log_p(self, loss, actions):
-        # likelihood gradient
-        # TODO: add option to use log likelihood trick
-        grad_lik = torch.autograd.grad(loss.sum(), actions)[0]
-        # prior gradient
-        grad_pri = grad_gmm_log_p(self.prior, actions)
-        grad_log_p = grad_pri + grad_lik
-        return grad_log_p
-
-    def _get_weights(self, costs):
-        """Computes particles weights based on raw costs.
-        """
-        log_l = self.likelihood.log_prob(costs)
-        log_p = self.prior.log_prob(self.pol_mean)
-        log_w = log_l + log_p
-        return (log_w - log_w.logsumexp(0)).exp()
-
     def _sample_actions(self, pol_mean):
         # actions = self.prior.sample(sample_shape=[self.pol_samples])
-        # pi = dist.Independent(dist.MultivariateNormal(pol_mean, self.pol_cov), 1)
         pi = dist.MultivariateNormal(pol_mean, self.pol_cov)
         # Use rsample to preserve gradient
         actions = pi.rsample([self.pol_samples])
         return actions
+
+    def _get_costs(self, state, actions, model, params_dist):
+        states, params_dict = self._rollout(state, actions, model, params_dist)
+        costs = self._compute_cost(states, actions, debug=False)
+        return costs, states, params_dict
+
+    def _get_grad_log_p(self, costs, actions):
+        # likelihood gradient...
+        log_lik = self.likelihood.log_prob(costs)
+        if self.autograd:  # ...using autograd
+            grad_lik = torch.autograd.grad(log_lik.sum(), actions)[0]
+            grad_lik = grad_lik.mean(0)  # average over samples
+        else:  # ...likelihood trick (need softmax since we are using log_lik)
+            bc_dims = torch.Size([1]) * len(self.prior.event_shape)
+            pol_weight = log_lik.softmax(0).reshape(log_lik.shape + bc_dims)
+            # computes gradients of action samples w.r.t. their policies
+            grad_log_pol = (actions - self.pol_mean) @ self.pol_cov.inverse()
+            grad_lik = torch.sum(pol_weight * grad_log_pol, dim=0)
+        # prior gradient (i.e. prior of particles w.r.t to previous step prior)
+        with torch.no_grad():
+            grad_pri = grad_gmm_log_p(self.prior, actions).mean(0)
+        grad_log_p = grad_pri + grad_lik
+        return grad_log_p, log_lik
+
+    def _get_pol_weights(self, costs, actions):
+        """Aggregates sampled costs and computes particles weights.
+        """
+        log_l = self.likelihood.log_prob(costs)
+        log_p = self.prior.log_prob(actions)
+        log_w = (log_l + log_p).logsumexp(0)  # aggregate over samples
+        log_w = log_w - log_w.logsumexp(0)  # normalize
+        return log_w.exp()
 
     def _update_optimizer(self):
         """Updates the optimizer state after performing a shift operation on policies.
@@ -318,9 +339,6 @@ class DuSt(BaseController):
             self.pol_mean[..., -1, :] = self.pol_mean.mean(dim=-2)
         else:
             raise ValueError("{} is an invalid roll strategy.".format(strategy))
-        # TODO: should we try to keep optimizer params in between loops?
-        # # update optimizer params
-        # self.optimizer.param_groups[0]["params"][0] = self.pol_mean
 
     def forward(self, state, model, params_dist, steps=5):
         """Computes the next sequence of actions and updates the controller state.
@@ -340,13 +358,14 @@ class DuSt(BaseController):
         def score_estimator(X):
             # X requires_grad will be set by Stein Sampler
             iter_dict = {}
-            # actions = self._sample_actions(X.reshape_as(self.pol_mean))
             actions = self._sample_actions(X)
-            loss, costs, trajectories, params_dict = self._get_loss(
+            costs, trajectories, params_dict = self._get_costs(
                 state, actions, model, params_dist
             )
+            grad_log_p, log_lik = self._get_grad_log_p(costs, actions)
             # sum gradient along actions samples and flatten for stein
-            grad_log_p = self._get_grad_log_p(loss, actions).sum(0).flatten(1)
+            grad_log_p = grad_log_p.flatten(1)
+            loss = -log_lik.sum(0)
             iter_dict["actions"] = actions.detach()
             iter_dict["costs"] = costs.detach()
             iter_dict["loss"] = loss.detach()
@@ -354,14 +373,16 @@ class DuSt(BaseController):
             iter_dict["dyn_params"] = params_dict
             return grad_log_p, iter_dict
 
-        # stein needs particles of shape [batch, dim], so hz_len and dim_a are flatten
-        pol_actions, data_dict, self.opt_state = self.stein_sampler.optimize(
+        # stein particles have shape [batch, extra_dims] and flattens extra_dims.
+        trace, data_dict, self.opt_state = self.stein_sampler.optimize(
             self.pol_mean, score_estimator, self.opt_state, steps
         )
         # to compute the weights, we may either re-sample the likelihood to get the
         # expected cost of the new θ_i or re-use the costs computed during the
         # `optimize` step to save computation.
-        pol_weights = self._get_weights(data_dict[-1]["costs"])
+        pol_weights = self._get_pol_weights(
+            data_dict[-1]["costs"], data_dict[-1]["actions"]
+        )
 
         # Pick best particle
         i_star = pol_weights.argmax()

@@ -98,7 +98,7 @@ class ParticleModel(BaseModel):
 
     @property
     def observation_space(self):
-        """The Pendulum observation space.
+        """The particle model observation space.
 
         :return: A space with the Pendulum observation space.
         :rtype: Box
@@ -107,7 +107,7 @@ class ParticleModel(BaseModel):
 
     @property
     def action_space(self):
-        """The Pendulum action space.
+        """The particle model action space.
 
         :return: A space with the Pendulum action space.
         :rtype: Box
@@ -244,7 +244,7 @@ class ParticleModel(BaseModel):
                 self.to_map_coord(self.init_state[:2])[1],
                 marker="o",
                 color="r",
-                s=200,
+                s=20,
             )
             # plot target state
             ax.scatter(
@@ -252,7 +252,7 @@ class ParticleModel(BaseModel):
                 self.to_map_coord(self.target[:2])[1],
                 marker="*",
                 color="r",
-                s=200,
+                s=100,
             )
         # plot state
         if states is not None:

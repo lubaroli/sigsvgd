@@ -65,9 +65,16 @@ def main(sim_params, exp_params, env_params):
     if kernel_type == "rbf":
         kernel = ScaledGaussianKernel()
     elif kernel_type == "rbf_fixed_bw":
-        kernel = ScaledGaussianKernel(bandwidth_fn=lambda *args: CTRL_DIM ** 0.5)
+        kernel = ScaledGaussianKernel(
+            bandwidth_fn=lambda *args: (CTRL_DIM + HORIZON) ** 0.5
+        )
     else:
         raise ValueError("Kernel type '{}' is not valid.".format(kernel_type))
+
+    opt = torch.optim.LBFGS
+    opt_kwargs = {
+        "lr": LEARNING_RATE,
+    }
 
     controller = DuSt(
         observation_space=base_model.observation_space,
@@ -77,15 +84,17 @@ def main(sim_params, exp_params, env_params):
         n_pol_samples=ACTION_SAMPLES,
         n_params_samples=PARAMS_SAMPLES,
         pol_mean=init_policies,
-        pol_cov=CTRL_SIGMA ** 2 * torch.eye(CTRL_DIM),
+        pol_cov=torch.eye(CTRL_DIM) * CTRL_SIGMA ** 2,
         pol_hyper_prior=True,
-        stein_sampler="SVGD",
+        stein_sampler="ScaledSVGD",
         kernel=kernel,
         temperature=ALPHA,
         params_sampling=False,
         params_log_space=exp_params["mpf_log_space"],
         inst_cost_fn=base_model.default_inst_cost,
         term_cost_fn=base_model.default_term_cost,
+        optimizer_class=opt,
+        **opt_kwargs
     )
 
     mpf_n_part = exp_params["mpf_n_particles"]
@@ -172,6 +181,7 @@ def main(sim_params, exp_params, env_params):
                 states=tau[:, :2],
                 rollouts=s_seq.flatten(0, 1),  # flattens actions and params samples
             )
+            plt.close()
             if USE_MPF:
                 dyn_particles = torch.cat(
                     [dyn_particles, mpf.x.detach().clone().t()], dim=0

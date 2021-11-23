@@ -21,11 +21,11 @@ if __name__ == "__main__":
     X0 = torch.randn([BATCH, DIM])
     X0 = X0.uniform_(-8, 8)
     X = X0.clone()
-    # kernel = ScaledGaussianKernel(bandwidth_fn=lambda *args: DIM ** 0.5)
+    kernel = ScaledGaussianKernel(bandwidth_fn=lambda *args: DIM ** 0.5)
     # kernel.analytic_grad = False
-    kernel = ScaledGaussianKernel()
+    # kernel = ScaledGaussianKernel()
 
-    optimizer = "adam"
+    optimizer = "lbfgs"
     if optimizer.lower() == "adam":
         opt = torch.optim.Adam
         opt_kwargs = {

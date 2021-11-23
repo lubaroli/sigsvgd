@@ -3,6 +3,7 @@ from typing import Callable
 import torch
 import torch.autograd as autograd
 import torch.optim as optim
+from torch.optim import optimizer
 from tqdm import trange
 
 from ..kernels import BaseKernel
@@ -45,7 +46,7 @@ class SVGD:
             X.detach_()
             loss = -log_lik.detach()
         else:
-            score_func = grad_log_p  # expects the gradient to *minimize* the loss
+            score_func = grad_log_p
             loss = grad_log_p.norm()
 
         if self.log_prior is not None:
@@ -184,6 +185,12 @@ class ScaledSVGD(SVGD):
         if self.metric.lower() == "gaussnewton":
             # M = self._estimate_gn_hessian(score_func).mean(dim=0)
             M = self._psd_estimate_gn_hessian(score_func, eps=X.var())
+        elif self.metric.lower() == "bfgs":
+            assert isinstance(self.optimizer_class, torch.optim.LBFGS), (
+                "Optimizer must be a instance of `torch.LBFGS` to use approximated "
+                "LBFGS Hessian.",
+            )
+            pass
         elif self.metric.lower() == "fischer":
             raise NotImplementedError
         elif self.metric.lower() == "hessian":

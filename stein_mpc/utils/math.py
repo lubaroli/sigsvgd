@@ -153,7 +153,14 @@ def to_gmm(
 
 
 def grad_gmm_log_p(p: torch.distributions.MixtureSameFamily, samples: torch.tensor):
+    ss = samples.shape
+    es = p.event_shape
+    s_1p = torch.Size([1])
+    s_1n = torch.Size([-1])
+    w = p.mixture_distribution.probs
+    w = w.reshape(s_1p + w.shape + s_1p * len(es))
+    samples = samples.reshape(s_1n + s_1p + es)
     mu = p.component_distribution.mean
     cov = p.component_distribution.variance
-    grad = -(samples - mu) / cov
-    return grad
+    grad = torch.sum(-w * (samples - mu) / cov, dim=1)
+    return grad.reshape(ss)

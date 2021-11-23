@@ -1,5 +1,5 @@
 from .svgd import SVGD, ScaledSVGD
-from .likelihoods import GaussianLikelihood, ExponentiatedUtility, ExpectedCost
+from .likelihoods import GaussianLikelihood, ExponentiatedUtility
 from .mpf import MPF
 
 __all__ = [
@@ -7,6 +7,5 @@ __all__ = [
     "ScaledSVGD",
     "GaussianLikelihood",
     "ExponentiatedUtility",
-    "ExpectedCost",
     "MPF",
 ]

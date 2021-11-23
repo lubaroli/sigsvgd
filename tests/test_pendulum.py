@@ -31,7 +31,7 @@ if __name__ == "__main__":
     ACTION_SAMPLES = 50
     PARAMS_SAMPLES = 5
     ALPHA = 1.0
-    LEARNING_RATE = 0.2
+    LEARNING_RATE = 0.1
     CTRL_SIGMA = 1.0
     CTRL_DIM = 1
     PRIOR_SIGMA = 1.0
@@ -121,4 +121,6 @@ if __name__ == "__main__":
     #     params_sampling=False,
     #     params_samples=PARAMS_SAMPLES,  # sampled params
     # )
-    run_gym_simulation("pendulum", init_state, controller, steps=SIM_STEPS, render=RENDER)
+    run_gym_simulation(
+        "pendulum", init_state, controller, steps=SIM_STEPS, render=RENDER
+    )
