@@ -1,108 +1,148 @@
+from typing import Callable, Tuple
+
 import torch
+from gpytorch.priors import SmoothedBoxPrior
+from torch import distributions as dist
 from torch import optim
-import torch.distributions as dist
 
 from ..controllers import BaseController
 from ..inference.likelihoods import CostLikelihood, ExponentiatedUtility
 from ..inference.svgd import SVGD, ScaledSVGD
-from ..kernels import BaseKernel, ScaledGaussianKernel
+from ..kernels import BaseKernel, ScaledGaussianKernel, TrajectoryKernel
+from ..models.base import BaseModel
 from ..utils.math import grad_gmm_log_p, to_gmm
-from gpytorch.priors import SmoothedBoxPrior
-
-Empty = torch.Size([])
+from ..utils.spaces import Box
 
 
 class DuSt(BaseController):
     def __init__(
         self,
-        observation_space,
-        action_space,
-        hz_len,
-        n_pol,
-        n_pol_samples,
-        n_params_samples=5,
-        pol_mean=None,
-        pol_cov=None,
-        pol_hyper_prior=True,
+        observation_space: Box,
+        action_space: Box,
+        hz_len: int,
+        n_pol: int,
+        n_action_samples: int = 0,
+        n_params_samples: int = 0,
+        pol_mean: torch.Tensor = None,
+        pol_cov: torch.Tensor = None,
+        pol_hyper_prior: bool = True,
         stein_sampler: str = "SVGD",
         kernel: BaseKernel = ScaledGaussianKernel(),
         likelihood: CostLikelihood = None,
-        temperature=1.0,
-        inst_cost_fn=None,
-        term_cost_fn=None,
-        params_sampling=True,
-        params_log_space=False,
+        temperature: float = 1.0,
+        inst_cost_fn: Callable = None,
+        term_cost_fn: Callable = None,
+        params_log_space: bool = False,
         weighted_prior: bool = False,
-        autograd: bool = False,
-        roll_strategy="repeat",
-        optimizer_class=torch.optim.Adam,
+        roll_strategy: str = "repeat",
+        optimizer_class: optim.Optimizer = optim.Adam,
         **opt_args,
     ):
-        """Constructor for DuSt.
+        """Constructor class for Stein MPC controller.
 
-        :param observation_space: A Box object defining the action space.
-        :type observation_space: gym.spaces.Space
-        :param action_space: A Box object defining the action space.
-        :type action_space: gym.spaces.Space
-        :param hz_len: Number of time steps in the control horizon.
-        :type hz_len: int
-        :param temperature: Controller temperature parameter. Defaults to 1.0.
-        :type temperature: float
-        :param a_cov: covariance matrix of the actions multiplicative Gaussian
-            noise. Effectively determines the amount of exploration
-            of the system. If None, an appropriate identity matrix is used.
-            Defaults to None.
-        :type a_cov: torch.Tensor
-        :key inst_cost_fn: A function that receives a trajectory and returns
-            the instantaneous cost. Must be defined if no `term_cost_fn` is
-            given. Defaults to None.
-        :type kwargs: function
-        :key term_cost_fn: A function that receives a state
-            and returns its terminal cost. Must be defined if no
-            `inst_cost_fn` is given. Defaults to None.
-        :param params_sampling: Can be set to either 'none, 'single',
-            'extended', or a Transformer object. If 'none', mean values of the
-            parameter distribution are used if available. Otherwise, default
-            model parameters are used. If 'single', one sample per rollout is
-            taken and used for all `n_actions` trajectories. If 'extended',
-            `n_actions` samples are taken per rollout, meaning each trajectory
-            has their own sampled parameters. Finally, if a Transformer is
-            provided it will be used *instead* of sampling parameters. Defaults
-            to 'extended'.
-        :type params_sampling: str or utils.utf.MerweScaledUTF
-        :param init_actions:  A tensor of dimension `n_pol` x `hz_len` x
-            `action_space.shape` containing the initial set of control actions.
-            If None, the sequence is initialized to zeros. Defaults to None.
-        :type init_actions: torch.Tensor
+        Args:
+            observation_space (Box): A Box object defining the observation space.
+            action_space (Box): A Box object defining the action space.
+            hz_len (int): Number of time steps in the control horizon.
+            n_pol (int): Number of controller policies (i.e. Stein particles).
+            n_action_samples (int, optional): If not zero, defines the number of actions
+              sampled from each policy and used to compute the likelihood gradient.
+              Defaults to 0.
+            n_params_samples (int, optional): If not zero, defines how many samples of
+              model parameters are taken when evaluating rollouts. Defaults to 0.
+            pol_mean (torch.Tensor, optional): The initial policies. If None, policies
+              are randomly initialized from a Normal distribution with `pol_cov`
+              covariance. Defaults to None.
+            pol_cov (torch.Tensor, optional): The covariance matrix of each policy. If
+              None an identity matrix is used. Defaults to None.
+            pol_hyper_prior (bool, optional): If True, a Smoothed Box hyper-prior is
+              used to regularize gradients and keep policies within the action space.
+              Defaults to True.
+            stein_sampler (str, optional): Defines the type of Stein variational method.
+              Options are `SVGD` for first-order gradients, `ScaledSVGD` for
+              metric-scaled kernels and `MatrixSVGD` for second-order Stein gradients.
+              Defaults to "SVGD".
+            kernel (BaseKernel, optional): The kernel used by the Stein sampler.
+              Defaults to ScaledGaussianKernel().
+            likelihood (CostLikelihood, optional): The likelihood function. If None, an
+              Exponential Utility is used. Defaults to None.
+            temperature (float, optional): Controller temperature parameter. Defaults
+              to 1.0.
+            inst_cost_fn (Callable, optional): The instantaneous cost function which
+              receives states and actions as inputs. If None, a null function is used.
+              At least one of the cost functions must be defined. Defaults to None.
+            term_cost_fn (Callable, optional): The terminal cost function which receives
+              states as input. If None, a null function is used. At least one of the
+              cost functions must be defined. Defaults to None.
+            params_log_space (bool, optional): If True, parameters are sampled in
+              log-space to avoid negative values. Defaults to False.
+            weighted_prior (bool, optional): If True, uses last step costs to weigh
+              particles. Defaults to False.
+            roll_strategy (str, optional): Defines the strategy to refill policies at
+              each time-step transition. Choices are "repeat", "resample", "mean".
+              Defaults to "repeat".
+            optimizer_class (optim.Optimizer, optional): Type of optimizer to use.
+              Defaults to optim.Adam.
 
-        .. note::
-            * Actions will be clipped according to bounding action space regardless
-              of the covariance set. Effectively `epsilon <= (max_a - min_a)`.
+        Raises:
+            ValueError: Raises a ValueError if an invalid Stein Sampler is chosen.
         """
         super().__init__(
             observation_space, action_space, hz_len, inst_cost_fn, term_cost_fn,
         )
-        # initialize policies
+        # configure model params inference
+        if n_params_samples == 0:  # no inference, use model default params
+            self.params_shape = torch.Size([])
+        else:  # use Monte Carlo sampling to estimate params
+            assert n_params_samples >= 0 and isinstance(
+                n_params_samples, int
+            ), "Number of policy samples must be an integer."
+            self.params_shape = torch.Size([n_params_samples])
+        self._params_log_space = params_log_space
+
+        # configure grad_log_p estimation
+        if n_action_samples == 0:  # will use autograd
+            self.action_shape = torch.Size([])
+        else:  # use Monte Carlo sampling out of policies
+            assert n_action_samples >= 0 and isinstance(
+                n_action_samples, int
+            ), "Number of policy samples must be a positive integer."
+            self.action_shape = torch.Size([n_action_samples])
+
+        # number of particles
         self.n_pol = n_pol
-        self.pol_samples = n_pol_samples
+        # shape of sampled rollouts
+        self.rollout_shape = (
+            self.params_shape + self.action_shape + torch.Size([self.n_pol])
+        )
+        self.policies_shape = torch.Size([self.n_pol, self.hz_len, self.dim_a])
+        # useful attributes
+        self.n_rollouts = self.rollout_shape.numel()
+        self.n_total_actions = (self.action_shape + (self.n_pol,)).numel()
+        self.n_params = n_params_samples
+
+        # initialize policies
         if pol_cov is None:
             self.pol_cov = torch.eye(self.dim_a)
         else:
             self.pol_cov = pol_cov
         if pol_mean is None:
-            self.pol_mean = torch.zeros(self.n_pol, self.hz_len, self.dim_a)
+            self.pol_mean = torch.empty(self.policies_shape).uniform_(
+                torch.max(self.min_a.max(), torch.tensor(-100)),
+                torch.min(self.max_a.min(), torch.tensor(100)),
+            )
         else:
-            assert pol_mean.shape == (
-                self.n_pol,
-                self.hz_len,
-                self.dim_a,
+            assert (
+                pol_mean.shape == self.policies_shape
             ), "Initial policies shape mismatch."
             self.pol_mean = pol_mean.clone()
-        self.pol_weights = torch.ones(self.n_pol)
-        self.prior = to_gmm(self.pol_mean, self.pol_weights, self.pol_cov)
+        self.prior_weights = torch.ones(self.n_pol)
+        self.prior = to_gmm(self.pol_mean, self.prior_weights, self.pol_cov)
         hyper_prior = (
             SmoothedBoxPrior(self.min_a, self.max_a, 0.1).log_prob
             if pol_hyper_prior
+            and not torch.isinf(self.min_a).any()
+            and not torch.isinf(self.max_a).any()
             else None
         )
 
@@ -115,6 +155,7 @@ class DuSt(BaseController):
 
         # configure stein sampler
         self.opt_state = None
+        self.kernel = kernel  # TODO: keep this for all kernels or just TK?
         if stein_sampler == "SVGD":
             self.stein_sampler = SVGD(
                 kernel,
@@ -143,96 +184,80 @@ class DuSt(BaseController):
                 "Invalid value for 'stein_sampler': {}.".format(stein_sampler)
             )
 
-        # configure params inference
-        self._params_sampling = params_sampling
-        self._params_log_space = params_log_space
-        if (
-            params_sampling is False
-            or params_sampling is None
-            or params_sampling == "none"
-        ):
-            self.params_samples = 1
-            self._params_shape = None
-        elif params_sampling is True:
-            self.params_samples = n_params_samples
-            self._params_shape = [self.params_samples]
-        else:
-            raise ValueError(
-                "Invalid value for 'params_sampling': {}.".format(params_sampling)
-            )
-        # total amount of rollouts
-        self.n_rollouts = self.params_samples * self.pol_samples * self.n_pol
+        # additional options
         self.w_prior = weighted_prior
-        self.autograd = autograd
         self.roll_strategy = roll_strategy
 
-    def _compute_cost(self, states, actions, debug=False):
+    def _compute_cost(
+        self, states: torch.Tensor, actions: torch.Tensor
+    ) -> torch.Tensor:
         """Estimate trajectories cost.
 
-        :param states: A tensor with the states of each trajectory.
-        :type states: torch.Tensor
-        :param eps: A tensor with the difference of the current planned action
-            sequence and the actions on each trajectory.
-        :type eps: torch.Tensor
-        :returns: A tensor with the costs for the given trajectories.
-        :rtype: torch.Tensor
+        Args:
+            states (torch.Tensor): A tensor with the states of each trajectory.
+            actions (torch.Tensor): A tensor with the sampled actions for each policy.
+
+        Returns:
+            torch.Tensor: The aggregated cost of each policy.
         """
         # Dims are n_params, n_actions, n_pol, hz_len, dim_s/dim_a
         x_vec = states[..., :-1, :].reshape(-1, self.dim_s)
         x_final = states[..., -1, :].reshape(-1, self.dim_s)
         a_vec = actions.reshape(-1, self.dim_a)
-        inst_costs = self.inst_cost_fn(x_vec, a_vec, n_pol=self.n_pol, debug=debug)
-        term_costs = self.term_cost_fn(x_final, n_pol=self.n_pol, debug=debug)
+        inst_costs = self.inst_cost_fn(x_vec, a_vec, n_pol=self.n_pol)
+        term_costs = self.term_cost_fn(x_final, n_pol=self.n_pol)
 
-        inst_costs = inst_costs.view(
-            self.params_samples, self.pol_samples, self.n_pol, self.hz_len
-        )
-        inst_costs = inst_costs.sum(dim=-1)  # sum over control horizon
-        term_costs = term_costs.view(self.params_samples, self.pol_samples, self.n_pol)
-        state_cost = (inst_costs + term_costs).mean(0)  # avg costs over params
+        # aggregate instant costs over control horizon
+        inst_costs = inst_costs.reshape(self.rollout_shape + (self.hz_len,)).sum(-1)
+        term_costs = term_costs.reshape(self.rollout_shape)
+        state_cost = inst_costs + term_costs
+        if self.params_shape:  # if not empty, average over params
+            state_cost = (inst_costs + term_costs).mean(0)
         return state_cost
 
-    def _rollout(self, init_state, actions, model, params_dist):
-        """Perform rollouts based on current state and control plan.
+    def _rollout(
+        self,
+        init_state: torch.Tensor,
+        base_actions: torch.Tensor,
+        model: BaseModel,
+        params_dist: dist.Distribution,
+    ) -> Tuple[torch.Tensor, torch.Tensor, dict]:
+        """Generates rollouts based on initial state and policies. Model can be
+        deterministic or contain uncertain params.
 
-        :param model: A model object which provides a `step` function to
-            generate the system rollouts. If params_sampling is used, it must
-            also implement a `sample_params` function for the parameters of the
-            transition function.
-        :type model: models.base.BaseModel
-        :param state: The initial state of the system.
-        :type state: torch.Tensor
-        :param ext_actions: A matrix of shape `n_actions` x `n_pol` x `hz_len` x
-            `dim_a` action sequences.
-        :type actions: torch.Tensor
-        :returns: A tuple of (actions, states, eps) for `n_actions` rollouts.
-        :rtype: (torch.Tensor, torch.Tensor, torch.Tensor)
+        Args:
+            init_state (torch.Tensor): The system initial state.
+            base_actions (torch.Tensor): A Tensor with the actions applied at each step.
+            model (BaseModel): A model object which provides a `step` function to
+              generate the system rollouts.
+            params_dist (dist.Distribution): A distribution from which model parameters
+              are sampled.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, dict]: Returns the sequence of states,
+              actions and parameters sampled for each trajectory.
         """
         # prepare tensors for batch rollout
-        if self._params_shape is not None:  # sample params from `params_dist`
-            event_shape = params_dist.event_shape
-            dim_params = 1 if event_shape == Empty else event_shape[0]
-            # `params` is a tensor of size `n_params` x `dim_params`
-            params = params_dist.sample(self._params_shape)
+        if self.params_shape:  # if not empty, sample params from `params_dist`
+            base_params = params_dist.sample(self.params_shape)
+            if not params_dist.event_shape:  # if event shape empty
+                # ensures params is at least a column vector
+                base_params = base_params.reshape(-1, 1)
             if self._params_log_space is True:
-                params = params.exp()
-            # repeat and reshape so each param is applied to all `n_actions`
-            # (just using repeat would replicate the batch and wouldn't work)
-            params = params.repeat(1, self.pol_samples * self.n_pol).reshape(
-                -1, dim_params
-            )
+                base_params = base_params.exp()
+            # use repeat_interleave to apply same params to all actions
+            params = base_params.repeat_interleave(self.n_total_actions, dim=0)
             # create dict with `uncertain_params` as keys for `model.step()`
             params_dict = model.params_to_dict(params)
+            # flatten policies into single dim and repeat for each sampled param
+            actions = base_actions.flatten(end_dim=-3).tile(self.n_params, 1, 1)
         else:  # use default `model` params
             params_dict = None
-        # flatten policies into single dim and repeat for each sampled param
-        actions = actions.reshape(-1, self.hz_len, self.dim_a).repeat(
-            self.params_samples, 1, 1
-        )
+            actions = base_actions.flatten(end_dim=-3)
         # expand initial state to the total amount of rollouts
         states = init_state.expand(self.n_rollouts, 1, -1).clone()
 
-        # generate rollout
+        # generate rollouts
         for t in range(self.hz_len):
             states = torch.cat(
                 [
@@ -243,55 +268,93 @@ class DuSt(BaseController):
             )
 
         # restore vectors dims, `n_params` is now first dimension
-        states = states.reshape(
-            -1, self.pol_samples, self.n_pol, self.hz_len + 1, self.dim_s
-        )
-        actions = actions.reshape(
-            -1, self.pol_samples, self.n_pol, self.hz_len, self.dim_a
-        )
-        return states, params_dict
+        states = states.reshape(self.rollout_shape + (self.hz_len + 1, self.dim_s))
+        actions = actions.reshape(self.rollout_shape + (self.hz_len, self.dim_a))
+        # TODO: see if can return just base_params_dict
+        return states, actions, params_dict
 
-    def _sample_actions(self, pol_mean):
-        # actions = self.prior.sample(sample_shape=[self.pol_samples])
+    def _sample_actions(self, pol_mean: torch.Tensor) -> torch.Tensor:
+        """Sample actions from Multivariate Normal policies while keeping the
+        computational graph.
+
+        Args:
+            pol_mean (torch.Tensor): The policies (distribution mean) for each
+              Multivariate Normal. Covariance is defined by `self.pol_cov`.
+
+        Returns:
+            torch.Tensor: Sampled actions.
+        """
         pi = dist.MultivariateNormal(pol_mean, self.pol_cov)
         # Use rsample to preserve gradient
-        actions = pi.rsample([self.pol_samples])
+        actions = pi.rsample(self.action_shape)
         return actions
 
-    def _get_costs(self, state, actions, model, params_dist):
-        states, params_dict = self._rollout(state, actions, model, params_dist)
-        costs = self._compute_cost(states, actions, debug=False)
+    def _get_costs(self, state, base_actions, model, params_dist):
+        """Wrapper function to compute policies costs.
+        """
+        states, actions, params_dict = self._rollout(
+            state, base_actions, model, params_dist
+        )
+        costs = self._compute_cost(states, actions)
         return costs, states, params_dict
 
-    def _get_grad_log_p(self, costs, actions):
-        # likelihood gradient...
-        log_lik = self.likelihood.log_prob(costs)
-        if self.autograd:  # ...using autograd
-            grad_lik = torch.autograd.grad(log_lik.sum(), actions)[0]
-            grad_lik = grad_lik.mean(0)  # average over samples
-        else:  # ...likelihood trick (need softmax since we are using log_lik)
-            bc_dims = torch.Size([1]) * len(self.prior.event_shape)
-            pol_weight = log_lik.softmax(0).reshape(log_lik.shape + bc_dims)
-            # computes gradients of action samples w.r.t. their policies
-            grad_log_pol = (actions - self.pol_mean) @ self.pol_cov.inverse()
-            grad_lik = torch.sum(pol_weight * grad_log_pol, dim=0)
-        # prior gradient (i.e. prior of particles w.r.t to previous step prior)
-        with torch.no_grad():
-            grad_pri = grad_gmm_log_p(self.prior, actions).mean(0)
-        grad_log_p = grad_pri + grad_lik
-        return grad_log_p, log_lik
+    def _get_grad_log_p(
+        self, costs: torch.Tensor, actions: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Computes the gradient of the log-posterior distribution of policies.
 
-    def _get_pol_weights(self, costs, actions):
-        """Aggregates sampled costs and computes particles weights.
+        Args:
+            costs (torch.Tensor): The costs of each sampled action sequence or policy.
+            actions (torch.Tensor): The sampled action sequences or policies.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: A tuple containing the gradient of the
+              log-posterior and the negative log-likelihood loss.
         """
-        log_l = self.likelihood.log_prob(costs)
-        log_p = self.prior.log_prob(actions)
-        log_w = (log_l + log_p).logsumexp(0)  # aggregate over samples
-        log_w = log_w - log_w.logsumexp(0)  # normalize
-        return log_w.exp()
+        # prior gradient (i.e. prior of policies w.r.t to previous step prior)
+        with torch.no_grad():
+            grad_pri = grad_gmm_log_p(self.prior, self.pol_mean)
+
+        # likelihood gradient...
+        log_lik = self.likelihood.log_p(costs)
+        if self.action_shape:  # ... using monte-carlo sampling
+            with torch.no_grad():
+                # computes gradients of action samples w.r.t. their policies
+                grad_log_pol = (actions - self.pol_mean) @ self.pol_cov.inverse()
+                # elementwise product and aggregate over samples
+                bc_dims = torch.Size([1]) * len(self.prior.event_shape)
+                pol_weight = log_lik.reshape(log_lik.shape + bc_dims).softmax(dim=0)
+                grad_lik = torch.sum(pol_weight * grad_log_pol, dim=0)
+                # grad_pri = torch.sum(pol_weight * grad_pri, dim=0)
+                loss = -log_lik.sum(0)
+        else:  # ... using autograd
+            grad_lik = torch.autograd.grad(log_lik.sum(), actions, retain_graph=True)[0]
+            loss = -log_lik
+
+        grad_log_p = grad_pri + grad_lik
+        return grad_log_p, loss
+
+    def _get_pol_weights(self, costs: torch.Tensor) -> torch.Tensor:
+        """Aggregates sampled costs and computes particles weights.
+
+        Args:
+            costs (torch.Tensor): A tensor with the forecasted cost of each policy. If
+              actions sequences are being sampled, these will be averaged per policy.
+
+        Returns:
+            torch.Tensor: A tensor with the softmax weight of each policy.
+        """
+        log_lik = self.likelihood.log_p(costs)
+        if self.action_shape:
+            # elementwise product and aggregate over samples
+            weights = log_lik.mean(0).softmax(0)
+        else:
+            weights = log_lik.softmax(0)
+        return weights
 
     def _update_optimizer(self):
         """Updates the optimizer state after performing a shift operation on policies.
+        Currently only implemented for the L-BFGS optimizer.
         """
         steps = -1 * self.dim_a
         if self.stein_sampler.optimizer_class == optim.LBFGS:
@@ -315,12 +378,19 @@ class DuSt(BaseController):
                         new_v[:, i] for i in range(new_v.shape[-1])
                     ]
 
-    def _update_prior(self, weights=None):
+    def _update_prior(self, weights: torch.Tensor = None):
+        """Updates the controller GMM prior over particles. If using weighted priors,
+        assign current policy weights as the prior GMM weights.
+
+        Args:
+            weights (torch.Tensor, optional): Weights used by the prior if self.w_prior
+                is True. Defaults to None.
+        """
         if self.w_prior and weights is not None:
-            self.pol_weights = weights
+            self.prior_weights = weights
         else:
-            self.pol_weights = torch.ones_like(self.pol_weights)
-        self.prior = to_gmm(self.pol_mean, self.pol_weights, self.pol_cov)
+            self.prior_weights = torch.ones_like(self.prior_weights)
+        self.prior = to_gmm(self.pol_mean, self.prior_weights, self.pol_cov)
 
     def roll(self, steps=-1, strategy="repeat"):
         # self.pol_mean.clamp_(self.min_a, self.max_a)
@@ -340,32 +410,90 @@ class DuSt(BaseController):
         else:
             raise ValueError("{} is an invalid roll strategy.".format(strategy))
 
-    def forward(self, state, model, params_dist, steps=5):
+    def forward(
+        self,
+        state: torch.Tensor,
+        model: BaseModel,
+        params_dist: dist.Distribution,
+        steps: int = 5,
+    ) -> Tuple[torch.Tensor, dict]:
         """Computes the next sequence of actions and updates the controller state.
 
-            Called after the SVGD loop.
-            1. Evaluate weights on updated stein particles : requires
-            re-estimating the gradients on likelihood and prior for the new
-             parameter values. Likelihood gradients therefore require additional
-             sampling.
-            2. Pick the best particle according to weights.
-            3. Sets action sequence according to particle.
-            4. Shift particles.
-            5. Update prior using new weights.
-       """
+        Note that in Stein MPC, each particle is a control policy over a fixed control
+        horizon. The forward function will perform all the necessary steps to compute
+        the gradients, update policies, and return the current best action plan. This
+        requires performing the following steps:
+        - If using Monte Carlo samples to compute the likelihood gradient, sample
+          action sequences from current policies to evaluate costs. Otherwise, use
+          policy means and autograd to compute likelihood gradients;
+        - Computes rollouts and their costs using the forward model;
+        - Computes the score function (gradient of the target posterior distribution);
+        - Calls the Stein optimizer to update policies;
+        - Selects the current best policy based on rollout costs;
+        - Returns current best action sequence and an iteration dictionary;
+        - Rolls policies forward and updates optimizer state accordingly.
+
+        Args:
+            state (torch.Tensor): The current state of the system.
+            model (BaseModel): The forward model with a `step` function and able to
+              receive a dictionary of samples for uncertain model parameters.
+            params_dist (dist.Distribution): The distribution used to sample uncertain
+              model parameters.
+            steps (int, optional): Number of Stein optimization steps performed.
+              Defaults to 5.
+
+        Returns:
+            Tuple[torch.Tensor, dict]: Returns the current best action sequence and a
+              dictionary with iteration data.
+        """ """        """
         state = torch.as_tensor(state, dtype=torch.float)
 
-        def score_estimator(X):
-            # X requires_grad will be set by Stein Sampler
+        def score_estimator(policies: torch.Tensor) -> Tuple[torch.Tensor, dict]:
+            """This function is called by the Stein optimizer to compute the gradient
+            of the log-posterior and, optionally, of a custom kernel.
+
+            Args:
+                policies (torch.Tensor): The set of policy particles with zeroed
+                  gradients.
+
+            Returns:
+                Tuple[torch.Tensor, dict]: A tuple with a flattened tensor containing
+                  the gradient of the log-posterior and a dictionary with the iteration
+                  data. The kernel gram-matrix and gradient can be provided in this
+                  dictionary using the keys `k_xx` and `grad_k`, respectively.
+            """
+            # flat_pol gradients will be set by Stein Sampler
             iter_dict = {}
-            actions = self._sample_actions(X)
+            if self.action_shape:
+                actions = self._sample_actions(policies)
+            else:  # will use autograd on policies mean
+                actions = policies
             costs, trajectories, params_dict = self._get_costs(
                 state, actions, model, params_dist
             )
-            grad_log_p, log_lik = self._get_grad_log_p(costs, actions)
+            grad_log_p, loss = self._get_grad_log_p(costs, actions)
             # sum gradient along actions samples and flatten for stein
             grad_log_p = grad_log_p.flatten(1)
-            loss = -log_lik.sum(0)
+            # compute kernel gram matrix and gradient using trajectory kernel
+            if isinstance(self.kernel, TrajectoryKernel):
+                # Selects only X, Y position starting on time t+1
+                tau = trajectories[..., 1:, :2].clone()
+                if self.action_shape:
+                    tau = tau.mean(0)
+                K, dK = (0, 0)
+                for i in range(tau.shape[-1]):
+                    # computing gradients w.r.t. policies is equal to computing the sum
+                    # of gradients w.r.t. sampled actions
+                    Ki, dKi = self.kernel(
+                        tau[..., i], tau[..., i].detach(), policies, compute_grad=True
+                    )
+                    K = K + Ki
+                    dK = dK + dKi
+                K = K / tau.shape[-1]
+                dK = dK.flatten(1) / tau.shape[-1]
+                iter_dict["k_xx"] = K.detach()
+                iter_dict["grad_k"] = dK.detach()
+
             iter_dict["actions"] = actions.detach()
             iter_dict["costs"] = costs.detach()
             iter_dict["loss"] = loss.detach()
@@ -374,23 +502,20 @@ class DuSt(BaseController):
             return grad_log_p, iter_dict
 
         # stein particles have shape [batch, extra_dims] and flattens extra_dims.
-        trace, data_dict, self.opt_state = self.stein_sampler.optimize(
+        data_dict, self.opt_state = self.stein_sampler.optimize(
             self.pol_mean, score_estimator, self.opt_state, steps
         )
         # to compute the weights, we may either re-sample the likelihood to get the
         # expected cost of the new θ_i or re-use the costs computed during the
         # `optimize` step to save computation.
-        pol_weights = self._get_pol_weights(
-            data_dict[-1]["costs"], data_dict[-1]["actions"]
-        )
+        pol_weights = self._get_pol_weights(data_dict[steps - 1]["costs"])
 
-        # Pick best particle
+        # Pick best policy
         i_star = pol_weights.argmax()
         a_seq = self.pol_mean[i_star].detach().clone()
 
-        # roll thetas for next step
+        # housekeeping for next step
         self.roll(strategy=self.roll_strategy)
         self._update_optimizer()
-        # and set the mixture of the new prior
         self._update_prior(pol_weights)
         return a_seq, data_dict
