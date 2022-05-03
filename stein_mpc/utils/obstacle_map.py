@@ -169,7 +169,26 @@ def get_obst_preset(preset_name, obst_width=2):
             [s * 1 / 2, -s * 3 / 2, w, w],
             [s * 3 / 2, -s * 3 / 2, w, w],
         ]
-
+    elif preset_name == "sm_grid_4x4":
+        s = 1
+        obst_params = [
+            [-s * 3 / 2, s * 3 / 2, w, w],
+            [-s * 1 / 2, s * 3 / 2, w, w],
+            [s * 1 / 2, s * 3 / 2, w, w],
+            [s * 3 / 2, s * 3 / 2, w, w],
+            [-s * 3 / 2, s / 2, w, w],
+            [-s * 1 / 2, s * 1 / 2, w, w],
+            [s * 1 / 2, s * 1 / 2, w, w],
+            [s * 3 / 2, s * 1 / 2, w, w],
+            [-s * 3 / 2, -s * 1 / 2, w, w],
+            [-s * 1 / 2, -s * 1 / 2, w, w],
+            [s * 1 / 2, -s * 1 / 2, w, w],
+            [s * 3 / 2, -s * 1 / 2, w, w],
+            [-s * 3 / 2, -s * 3 / 2, w, w],
+            [-s * 1 / 2, -s * 3 / 2, w, w],
+            [s * 1 / 2, -s * 3 / 2, w, w],
+            [s * 3 / 2, -s * 3 / 2, w, w],
+        ]
     elif preset_name == "grid_6x6":
         w = obst_width
         s = 3

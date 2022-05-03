@@ -7,7 +7,7 @@ from ..models.pendulum import PendulumModel
 
 
 def run_gym_simulation(
-    env_name, init_state, controller, steps=200, seed=None, render=False
+    env_name, init_state, controller, steps=200, optim_steps=10, seed=None, render=False
 ):
     if seed is not None:
         torch.manual_seed(seed)
@@ -50,7 +50,9 @@ def run_gym_simulation(
         if render:
             sim_env.render()
 
-        a_seq, trace = controller.forward(state, model, params_dist=None, steps=2)
+        a_seq, trace = controller.forward(
+            state, model, params_dist=None, steps=optim_steps
+        )
         action = a_seq[0]
         _, _, done, _ = sim_env.step(action)
         state = torch.as_tensor(sim_env.state, dtype=torch.float).unsqueeze(0)

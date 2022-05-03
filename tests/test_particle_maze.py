@@ -8,11 +8,10 @@ import yaml
 from stein_mpc.controllers import DISCO, DuSt
 from stein_mpc.inference import likelihoods
 from stein_mpc.inference.mpf import MPF
-from stein_mpc.kernels import GaussianKernel, ScaledGaussianKernel
+from stein_mpc.kernels import GaussianKernel, ScaledGaussianKernel, TrajectoryKernel
 from stein_mpc.models import ParticleModel
 from stein_mpc.utils.helper import create_video_from_plots, save_progress
 from stein_mpc.utils.math import to_gmm
-
 from tqdm import trange
 
 
@@ -23,33 +22,31 @@ def main(sim_params, exp_params, env_params):
     EPISODES = sim_params["episodes"]
     # ========== EXPERIMENT HYPERPARAMETERS ==========
     HORIZON = exp_params["horizon"]
-    N_PARTICLES = exp_params["n_particles"]
+    N_POLICIES = exp_params["n_policies"]
     ACTION_SAMPLES = exp_params["action_samples"]
     PARAMS_SAMPLES = exp_params["params_samples"]
     ALPHA = exp_params["alpha"]
     LEARNING_RATE = exp_params["learning_rate"]
-    BANDWIDTH_SCALE = exp_params["bandwidth_scaling"]
     CTRL_SIGMA = exp_params["ctrl_sigma"]
     CTRL_DIM = exp_params["ctrl_dim"]
-    LIKELIHOOD = exp_params["likelihood"]
-    USE_SVMPC = exp_params["use_svmpc"]
+    OPT_STEPS = exp_params["opt_steps"]
+    STEIN_SAMPLER = exp_params["stein_sampler"]
     USE_MPF = exp_params["use_mpf"]
     PRIOR_SIGMA = exp_params["prior_sigma"]
-    WEIGHTED_PRIOR = exp_params["weighted_prior"]
     DYN_PRIOR = exp_params["dyn_prior"]
     DYN_PRIOR_ARG1 = exp_params["dyn_prior_arg1"]
     DYN_PRIOR_ARG2 = exp_params["dyn_prior_arg2"]
     LOAD = exp_params["extra_load"]
-    SAMPLING = exp_params["sampling"]
     # ========== Experiment Setup ==========
     # Initial state
     state = torch.as_tensor(env_params["init_state"]).clone()
     policies_prior = to_gmm(
-        torch.randn(N_PARTICLES, HORIZON, CTRL_DIM),
-        torch.ones(N_PARTICLES),
+        torch.randn(N_POLICIES, HORIZON, CTRL_DIM),
+        torch.ones(N_POLICIES),
         PRIOR_SIGMA ** 2 * torch.eye(CTRL_DIM),
     )
-    init_policies = policies_prior.sample([N_PARTICLES])
+    init_policies = policies_prior.sample([N_POLICIES])
+    init_policies = None
     dynamics_prior = getattr(dist, DYN_PRIOR)(DYN_PRIOR_ARG1, DYN_PRIOR_ARG2)
 
     system_kwargs = {
@@ -68,10 +65,13 @@ def main(sim_params, exp_params, env_params):
         kernel = ScaledGaussianKernel(
             bandwidth_fn=lambda *args: (CTRL_DIM + HORIZON) ** 0.5
         )
+    elif kernel_type == "trajectory":
+        kernel = TrajectoryKernel()
     else:
         raise ValueError("Kernel type '{}' is not valid.".format(kernel_type))
 
-    opt = torch.optim.LBFGS
+    # opt = torch.optim.LBFGS
+    opt = torch.optim.Adam
     opt_kwargs = {
         "lr": LEARNING_RATE,
     }
@@ -80,16 +80,15 @@ def main(sim_params, exp_params, env_params):
         observation_space=base_model.observation_space,
         action_space=base_model.action_space,
         hz_len=HORIZON,
-        n_pol=N_PARTICLES,
-        n_pol_samples=ACTION_SAMPLES,
+        n_pol=N_POLICIES,
+        n_action_samples=ACTION_SAMPLES,
         n_params_samples=PARAMS_SAMPLES,
         pol_mean=init_policies,
         pol_cov=torch.eye(CTRL_DIM) * CTRL_SIGMA ** 2,
         pol_hyper_prior=True,
-        stein_sampler="ScaledSVGD",
+        stein_sampler=STEIN_SAMPLER,
         kernel=kernel,
         temperature=ALPHA,
-        params_sampling=False,
         params_log_space=exp_params["mpf_log_space"],
         inst_cost_fn=base_model.default_inst_cost,
         term_cost_fn=base_model.default_term_cost,
@@ -131,12 +130,7 @@ def main(sim_params, exp_params, env_params):
         state = torch.as_tensor(env_params["init_state"]).clone()
         tau = state.unsqueeze(0)
         rollouts = torch.empty(
-            0,
-            controller.params_samples,
-            controller.pol_samples,
-            controller.n_pol,
-            controller.hz_len + 1,
-            state.shape[0],
+            (0,) + controller.rollout_shape + (controller.hz_len + 1, state.shape[0])
         )
         costs = torch.empty((0, 1))
         actions = torch.empty((0, CTRL_DIM))
@@ -159,9 +153,11 @@ def main(sim_params, exp_params, env_params):
             # ----------------------------
             # selects next action and makes sure the controller plan is
             # the same as svmpc
-            a_seq, history = controller.forward(state, model, params_dist=None, steps=2)
+            a_seq, history = controller.forward(
+                state, model, dynamics_dist, steps=OPT_STEPS
+            )
             # fetch trajectories of last iteration
-            s_seq = history[-1]["trajectories"]
+            s_seq = history[OPT_STEPS - 1]["trajectories"]
             action = a_seq[0]
             state = system.step(state, action.squeeze())
             grad_dyn = torch.zeros(mpf_steps)
@@ -176,10 +172,16 @@ def main(sim_params, exp_params, env_params):
             rollouts = torch.cat([rollouts, s_seq.unsqueeze(0)], dim=0)
             inst_cost = controller.inst_cost_fn(state.view(1, -1))
             costs = torch.cat([costs, inst_cost.unsqueeze(0)], dim=0)
+            ro_render = (
+                s_seq.mean(0, keepdims=True)
+                if controller.action_shape
+                else s_seq.unsqueeze(0)
+            )
             system.render(
                 path=save_path / "plots/{0:03d}.png".format(step),
                 states=tau[:, :2],
-                rollouts=s_seq.flatten(0, 1),  # flattens actions and params samples
+                # flattens actions and params samples
+                rollouts=ro_render,
             )
             plt.close()
             if USE_MPF:

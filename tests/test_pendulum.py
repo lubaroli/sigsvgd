@@ -27,14 +27,14 @@ if __name__ == "__main__":
     PI = math.pi
     ONE_DEG = 2 * PI / 360
     HORIZON = 20
-    N_POLICIES = 20
-    ACTION_SAMPLES = 50
-    PARAMS_SAMPLES = 5
+    N_POLICIES = 1
+    ACTION_SAMPLES = 0
+    PARAMS_SAMPLES = 0
     ALPHA = 1.0
-    LEARNING_RATE = 0.1
-    CTRL_SIGMA = 1.0
+    LEARNING_RATE = 1.0e-1
+    CTRL_SIGMA = 0.1
     CTRL_DIM = 1
-    PRIOR_SIGMA = 1.0
+    PRIOR_SIGMA = 0.1
     SIM_STEPS = 200
     RENDER = True
 
@@ -90,17 +90,16 @@ if __name__ == "__main__":
         action_space=env.action_space,
         hz_len=HORIZON,  # control horizon
         n_pol=N_POLICIES,
-        n_pol_samples=ACTION_SAMPLES,  # sampled trajectories
+        n_action_samples=ACTION_SAMPLES,  # sampled trajectories
+        n_params_samples=PARAMS_SAMPLES,  # sampled params
         pol_mean=init_policies,
         pol_cov=CTRL_SIGMA ** 2 * torch.eye(CTRL_DIM),
-        pol_hyper_prior=True,
-        stein_sampler="ScaledSVGD",
+        pol_hyper_prior=False,
+        stein_sampler="SVGD",
         kernel=kernel,
         temperature=ALPHA,  # temperature
         inst_cost_fn=inst_cost,
         term_cost_fn=term_cost,
-        params_sampling=False,
-        n_params_samples=PARAMS_SAMPLES,  # sampled params
         optimizer_class=opt,
         **opt_kwargs
     )

@@ -85,12 +85,12 @@ if __name__ == "__main__":
             log_p,
             log_prior,
             optimizer_class=opt,
-            precondition=True,
+            precondition=False,
             **opt_kwargs,
         )
 
     start = time.process_time()
-    X_all = stein_sampler.optimize(X, n_steps=N_ITER)[0]
+    X_all = stein_sampler.optimize(X, n_steps=N_ITER)[0]["trace"]
 
     # uncomment this code to test resetting the optimizer at every timestep
     # X_all = []

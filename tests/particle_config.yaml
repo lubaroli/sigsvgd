@@ -1,26 +1,25 @@
 ---
 sim_params:
-  warm_up: 5
+  warm_up: 1
   steps: 400
-  episodes: 20
+  episodes: 1
 
 exp_params:
-  horizon: 40
-  n_particles: 6
-  action_samples: 64
-  params_samples: 4
+  horizon: 30
+  n_policies: 30
+  action_samples: 10
+  params_samples: 0
   alpha: 1
-  learning_rate: 100
-  bandwidth_scaling: 1.0
+  learning_rate: 1
   ctrl_sigma: 5
   ctrl_dim: 2
+  opt_steps: 5
+  stein_sampler: SVGD
   likelihood: ExponentiatedUtility
-  sampling: true
-  kernel: rbf
-  use_svmpc: true
+  kernel: trajectory
   use_mpf: false
-  prior_sigma: 5
-  weighted_prior: False
+  prior_sigma: 1
+  weighted_prior: false
   dyn_prior: Normal
   dyn_prior_arg1: 2
   dyn_prior_arg2: 0.1
@@ -40,8 +39,8 @@ env_params:
   dt: 0.015
   control_type: acceleration
   noise_std: [0.1, 0.1]
-  init_state: [-9.0, -9.0, 0, 0]
-  target_state: [9.0, 9.0, 0, 0]
+  init_state: [-1.8, -1.8, 0, 0]
+  target_state: [1.8, 1.8, 0, 0]
   can_crash: true
   with_obstacle: true
   deterministic: true
@@ -52,10 +51,10 @@ env_params:
     w_obs: 1.0e+6
     w_qpos_T: 1.0e+3
     w_qvel_T: 0.1
-  obst_preset: grid_4x4
-  obst_width: 2.1
+  obst_preset: sm_grid_4x4
+  obst_width: 0.7
   max_speed: 5
-  max_accel: 10
-  map_cell_size: 0.1
-  map_size: [22, 22]
+  max_accel:
+  map_cell_size: 0.01
+  map_size: [4, 4]
   map_type: direct

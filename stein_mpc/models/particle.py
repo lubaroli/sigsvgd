@@ -165,7 +165,7 @@ class ParticleModel(BaseModel):
         next_states[..., -2:].clamp_(min=-self.__max_speed, max=self.__max_speed)
         return next_states
 
-    def default_inst_cost(self, states, actions=0, n_pol=0, debug=False):
+    def default_inst_cost(self, states, actions=0, n_pol=0):
         # Collision costs
         if self.with_obstacle:
             # Detect collisions using x and y position
@@ -177,27 +177,11 @@ class ParticleModel(BaseModel):
         delta_pos = states - self.target
         state_cost = torch.mul(delta_pos, delta_pos) * self.w_state
         control_cost = torch.mul(actions, actions) * self.w_ctrl
-
-        if debug:
-            print("\n Avg. instant. costs:")
-            # print("control: ", control_cost.view(-1, hz_len, a_dim))
-            # print("state: ", state_cost.view(-1, hz_len, s_dim))
-            # print("obst: ", obst_cost.view(-1, hz_len, s_dim))
-            print(
-                "control: ", self.to_numpy(control_cost.view(n_pol, -1).sum(1).mean(0)),
-            )
-            print(
-                "state: ", self.to_numpy(state_cost.view(n_pol, -1).sum(1).mean(0)),
-            )
-            print(
-                "obst: ", self.to_numpy(obst_cost.view(n_pol, -1).sum(1).mean(0)),
-            )
-
         return state_cost.sum(-1) + control_cost.sum(-1) + obst_cost
 
     # def default_term_cost(self, states):
     # def default_term_cost(self, states, n_pol=0, hz_len=0, s_dim=0, a_dim=0):
-    def default_term_cost(self, states, n_pol=0, debug=False):
+    def default_term_cost(self, states, n_pol=0):
 
         # Collision costs
         if self.with_obstacle:
@@ -210,16 +194,6 @@ class ParticleModel(BaseModel):
         # Distance to goal
         delta_pos = states - self.target
         state_cost = torch.mul(delta_pos, delta_pos) * self.w_term
-
-        if debug:
-            print("\n Avg. terminal costs:")
-            print(
-                "state: ", self.to_numpy(state_cost.view(n_pol, -1).sum(1).mean(0)),
-            )
-            print(
-                "obst: ", self.to_numpy(obst_cost.view(n_pol, -1).sum(1).mean(0)),
-            )
-            print("\n")
         return state_cost.sum(-1) + obst_cost
 
     def render(
@@ -269,8 +243,8 @@ class ParticleModel(BaseModel):
             colour = iter(cm.rainbow(torch.linspace(0, 1, n_pol).numpy()))
             for policy in range(n_pol):
                 ax.plot(
-                    map_rollouts[:, policy, :, 0].T,
-                    map_rollouts[:, policy, :, 1].T,
+                    map_rollouts[..., policy, :, 0].T,
+                    map_rollouts[..., policy, :, 1].T,
                     alpha=0.3,
                     color=next(colour),
                     linewidth=1,
