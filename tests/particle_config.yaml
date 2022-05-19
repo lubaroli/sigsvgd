@@ -16,7 +16,7 @@ exp_params:
   opt_steps: 5
   stein_sampler: SVGD
   likelihood: ExponentiatedUtility
-  kernel: trajectory
+  kernel: signature
   use_mpf: false
   prior_sigma: 1
   weighted_prior: false
