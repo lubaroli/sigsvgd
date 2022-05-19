@@ -1,23 +1,19 @@
-import time
-
 import torch
-from stein_mpc.kernels import TrajectoryKernel
+from stein_mpc.kernels import SignatureKernel
 
 
-BATCH, DIM = [4, 2]
-torch.set_default_dtype(torch.double)
+torch.random.manual_seed(0)
+BATCH, HZ, DIM = [128, 25, 1]
 
 
 def phi(X):
-    return X.norm(dim=-1).view(-1, 1)
+    return torch.cat((X.cos(), X.sin()), -1)
 
 
-X = torch.randn(BATCH, DIM).requires_grad_(True)
-Y = torch.randn(BATCH, DIM)
-# Y = torch.tensor([[3, 4]], dtype=torch.double)
-# X = Y.clone().requires_grad_(True)
-M = torch.eye(DIM)
+X = torch.randn(BATCH, HZ, DIM).requires_grad_(True)
+Y = torch.randn(BATCH, HZ, DIM)
 h = torch.tensor(2.0)
 
-kernel = TrajectoryKernel()
-K, dK = kernel(phi(X), phi(Y), X, h.sqrt())
+
+kernel = SignatureKernel()
+K, dK = kernel(phi(X), phi(Y), X, depth=3, h=h.sqrt())

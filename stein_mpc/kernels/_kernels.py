@@ -1,12 +1,12 @@
 from abc import ABC, abstractmethod
-from typing import Callable, Union
+from typing import Callable, Union, Tuple
 
 import torch
 
 from ..utils.math import bw_median, pw_dist_sq, scaled_pw_dist_sq
 
 scalar_function = Callable[[torch.Tensor], float]
-kernel_output = Union[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]
+kernel_output = Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]
 
 
 class BaseKernel(ABC, torch.nn.Module):

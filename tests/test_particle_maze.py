@@ -8,7 +8,12 @@ import yaml
 from stein_mpc.controllers import DISCO, DuSt
 from stein_mpc.inference import likelihoods
 from stein_mpc.inference.mpf import MPF
-from stein_mpc.kernels import GaussianKernel, ScaledGaussianKernel, TrajectoryKernel
+from stein_mpc.kernels import (
+    GaussianKernel,
+    ScaledGaussianKernel,
+    TrajectoryKernel,
+    SignatureKernel,
+)
 from stein_mpc.models import ParticleModel
 from stein_mpc.utils.helper import create_video_from_plots, save_progress
 from stein_mpc.utils.math import to_gmm
@@ -67,6 +72,8 @@ def main(sim_params, exp_params, env_params):
         )
     elif kernel_type == "trajectory":
         kernel = TrajectoryKernel()
+    elif kernel_type == "signature":
+        kernel = SignatureKernel()
     else:
         raise ValueError("Kernel type '{}' is not valid.".format(kernel_type))
 
