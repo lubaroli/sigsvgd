@@ -8,7 +8,12 @@ from torch import optim
 from ..controllers import BaseController
 from ..inference.likelihoods import CostLikelihood, ExponentiatedUtility
 from ..inference.svgd import SVGD, ScaledSVGD
-from ..kernels import BaseKernel, ScaledGaussianKernel, TrajectoryKernel
+from ..kernels import (
+    BaseKernel,
+    ScaledGaussianKernel,
+    SignatureKernel,
+    TrajectoryKernel,
+)
 from ..models.base import BaseModel
 from ..utils.math import grad_gmm_log_p, to_gmm
 from ..utils.spaces import Box
@@ -128,8 +133,8 @@ class DuSt(BaseController):
             self.pol_cov = pol_cov
         if pol_mean is None:
             self.pol_mean = torch.empty(self.policies_shape).uniform_(
-                torch.max(self.min_a.max(), torch.tensor(-100)),
-                torch.min(self.max_a.min(), torch.tensor(100)),
+                torch.max(self.min_a.max(), torch.tensor(-100.0)),
+                torch.min(self.max_a.min(), torch.tensor(100.0)),
             )
         else:
             assert (
@@ -493,6 +498,14 @@ class DuSt(BaseController):
                 dK = dK.flatten(1) / tau.shape[-1]
                 iter_dict["k_xx"] = K.detach()
                 iter_dict["grad_k"] = dK.detach()
+            elif isinstance(self.kernel, SignatureKernel):
+                # Selects only X, Y position starting on time t+1
+                tau = trajectories[..., 1:, :2].clone()
+                if self.action_shape:
+                    tau = tau.mean(0)
+                K, dK = self.kernel(tau, tau, policies, compute_grad=True)
+                iter_dict["k_xx"] = K.detach()
+                iter_dict["grad_k"] = dK.detach().flatten(1)
 
             iter_dict["actions"] = actions.detach()
             iter_dict["costs"] = costs.detach()

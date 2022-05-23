@@ -81,7 +81,10 @@ class ExponentiatedUtility(CostLikelihood):
         """Computes the un-normalized log-likelihood of a batch of cost samples with
         shape [[batch, ] event].
         """
-        batch_shape = torch.atleast_2d(costs).shape[0]
+        try:
+            batch_shape = torch.atleast_2d(costs).shape[0]
+        except AttributeError:
+            batch_shape = costs.shape[0] if costs.dim() >= 2 else 1
         # if more than one cost sample, subtract min for numerical stability
         if batch_shape > 1:
             costs = costs - costs.min()

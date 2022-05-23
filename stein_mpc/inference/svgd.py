@@ -39,7 +39,7 @@ class SVGD:
             )
         # batch should be X.shape[0], remaining dims will be flattened
         shape = X.shape
-        X = X.reshape(shape[0], -1)
+        X = X.flatten(1)
         if grad_log_p is None:
             X = X.detach().requires_grad_(True)
             log_lik = self.log_p(X.reshape(shape)).sum()

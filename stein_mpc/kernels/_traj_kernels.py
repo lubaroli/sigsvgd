@@ -112,10 +112,8 @@ class SignatureKernel(BaseKernel):
         """
         assert X.shape == Y.shape, "X and Y must have the same dimensions."
 
-        print(X.shape)
         X_sig = signatory.signature(X, depth, basepoint=True)
         Y_sig = signatory.signature(Y, depth, basepoint=True)
-        print(X_sig, X_sig.shape)
         sq_dists = pw_dist_sq(X_sig, Y_sig)
         if h is None:
             h = self.get_bandwidth(sq_dists)
