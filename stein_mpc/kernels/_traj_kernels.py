@@ -68,7 +68,7 @@ class TrajectoryKernel(BaseKernel):
             return K
 
 
-class SignatureKernel(BaseKernel):
+class PathSigKernel(BaseKernel):
     def __init__(self, bandwidth_fn: scalar_function = None, **kwargs):
         r"""Computes the gram matrix based on the RBF (squared exponential) kernel
         between Path Signatures inputs `X` and `Y`:
