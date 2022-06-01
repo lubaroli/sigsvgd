@@ -11,8 +11,8 @@ from stein_mpc.inference.mpf import MPF
 from stein_mpc.kernels import (
     GaussianKernel,
     ScaledGaussianKernel,
+    PathSigKernel,
     TrajectoryKernel,
-    SignatureKernel,
 )
 from stein_mpc.models import ParticleModel
 from stein_mpc.utils.helper import create_video_from_plots, save_progress
@@ -43,8 +43,12 @@ def main(sim_params, exp_params, env_params):
     DYN_PRIOR_ARG2 = exp_params["dyn_prior_arg2"]
     LOAD = exp_params["extra_load"]
     # ========== Experiment Setup ==========
+    if torch.cuda.is_available:
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
     # Initial state
-    state = torch.as_tensor(env_params["init_state"]).clone()
+    state = torch.as_tensor(env_params["init_state"]).to(device)
     policies_prior = to_gmm(
         torch.randn(N_POLICIES, HORIZON, CTRL_DIM),
         torch.ones(N_POLICIES),
@@ -73,7 +77,7 @@ def main(sim_params, exp_params, env_params):
     elif kernel_type == "trajectory":
         kernel = TrajectoryKernel()
     elif kernel_type == "signature":
-        kernel = SignatureKernel()
+        kernel = PathSigKernel()
     else:
         raise ValueError("Kernel type '{}' is not valid.".format(kernel_type))
 
@@ -82,6 +86,11 @@ def main(sim_params, exp_params, env_params):
     opt_kwargs = {
         "lr": LEARNING_RATE,
     }
+    primitives = torch.zeros(5, HORIZON, 2)
+    primitives[1] = -10.0
+    primitives[2] = 10.0
+    primitives[3, ..., :] = torch.tensor([-10.0, 10.0])
+    primitives[4, ..., :] = torch.tensor([10.0, -10.0])
 
     controller = DuSt(
         observation_space=base_model.observation_space,
@@ -99,6 +108,7 @@ def main(sim_params, exp_params, env_params):
         params_log_space=exp_params["mpf_log_space"],
         inst_cost_fn=base_model.default_inst_cost,
         term_cost_fn=base_model.default_term_cost,
+        action_primitives=primitives,
         optimizer_class=opt,
         **opt_kwargs
     )
@@ -134,14 +144,14 @@ def main(sim_params, exp_params, env_params):
     # ===== Experiment Loop =====
     for ep in range(EPISODES):
         # Reset state
-        state = torch.as_tensor(env_params["init_state"]).clone()
-        tau = state.unsqueeze(0)
+        state = torch.as_tensor(env_params["init_state"]).to(device)
+        tau = state.unsqueeze(0).to(device)
         rollouts = torch.empty(
             (0,) + controller.rollout_shape + (controller.hz_len + 1, state.shape[0])
-        )
-        costs = torch.empty((0, 1))
-        actions = torch.empty((0, CTRL_DIM))
-        dyn_particles = torch.empty((0, mpf_n_part))
+        ).to(device)
+        costs = torch.empty((0, 1)).to(device)
+        actions = torch.empty((0, CTRL_DIM)).to(device)
+        dyn_particles = torch.empty((0, mpf_n_part)).to(device)
         iterator = trange(STEPS)
         system = deepcopy(base_system)
         model = deepcopy(base_model)
