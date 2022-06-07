@@ -1,12 +1,32 @@
 import time
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from tqdm import trange
 
 
 def get_project_root():
     return Path(__file__).parent.parent.parent
+
+
+def plot_particles(model, data, save_path):
+    print("Plotting rollouts...")
+    ro = data["rollouts"].detach()
+    traj = data["trajectory"].detach()
+    if ro.ndim == 5:  # i.e. multiple rollouts per policy
+        ro = ro.mean(dim=1, keepdims=True)  # average rollouts of each policy
+    else:
+        ro.unsqueeze(1)  # add rollouts dimension for plotting
+    for step in trange(ro.shape[0]):
+        model.render(
+            path=save_path / "plots/{0:03d}.png".format(step),
+            states=traj[:step, ..., :2],
+            rollouts=ro[step],
+        )
+        plt.close()
+    print("Done!")
 
 
 def save_progress(

@@ -1,6 +1,6 @@
 ---
 sim_params:
-  warm_up: 1
+  warm_up: 20
   steps: 400
   episodes: 1
 
@@ -52,7 +52,7 @@ env_params:
     w_qpos_T: 1.0e+3
     w_qvel_T: 0.1
   obst_preset: sm_grid_4x4
-  obst_width: 0.7
+  obst_width: 0.6
   max_speed: 5
   max_accel:
   map_cell_size: 0.01

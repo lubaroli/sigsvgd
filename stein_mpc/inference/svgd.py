@@ -6,11 +6,10 @@ import torch.optim as optim
 from tqdm import trange
 
 from ..kernels import BaseKernel
-from ..LBFGS import LBFGS
 
 
 class SVGD:
-    """An implementation of Stein variational gradient descent.
+    """An implementation of Stein variational gradient descent that supports custom kernels.
     """
 
     def __init__(
@@ -29,21 +28,31 @@ class SVGD:
         self.optimizer_class = optimizer_class
         self.opt_args = opt_args
 
+    def _compute_kernel(self, X, **kernel_args):
+        if hasattr(self.kernel, "analytic_grad") and self.kernel.analytic_grad:
+            # grad_k is batch x batch x dim
+            k_xx, grad_k = self.kernel(X, X)
+            grad_k = grad_k.sum(1)  # aggregates gradient wrt to first input
+        else:
+            X = X.detach().requires_grad_(True)
+            k_xx = self.kernel(X, X.detach(), compute_grad=False)
+            grad_k = autograd.grad(-k_xx.sum(), X)[0]
+        return k_xx.detach(), grad_k.detach()
+
     def _velocity(
-        self, X: torch.Tensor, grad_log_p: torch.Tensor, **kwargs
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        self, X: torch.Tensor, grad_log_p: torch.Tensor, **kernel_args
+    ) -> Tuple[torch.Tensor, dict]:
         if self.log_p is None and grad_log_p is None:
             raise ValueError(
                 "SVGD needs a function to evaluate the log probability of the target",
                 "distribution or an estimate of the gradient for every particle.",
             )
-        # batch should be X.shape[0], remaining dims will be flattened
-        shape = X.shape
-        X = X.flatten(1)
+        k_xx, grad_k = self._compute_kernel(X, **kernel_args)
+
         if grad_log_p is None:
             X = X.detach().requires_grad_(True)
-            log_lik = self.log_p(X.reshape(shape)).sum()
-            score_func = autograd.grad(log_lik, X)[0]
+            log_lik = self.log_p(X).sum()
+            score_func = autograd.grad(log_lik, X)[0].flatten(1)
             X.detach_()
             loss = -log_lik.detach()
         else:
@@ -52,54 +61,38 @@ class SVGD:
 
         if self.log_prior is not None:
             X = X.detach().requires_grad_(True)
-            log_prior_sum = self.log_prior(X.reshape(shape)).sum()
+            log_prior_sum = self.log_prior(X).sum()
             log_prior_grad = torch.autograd.grad(log_prior_sum, X)[0].detach()
             score_func = score_func + log_prior_grad
             X.detach_()
 
-        if not ("k_xx" in kwargs and "grad_k" in kwargs):
-            if hasattr(self.kernel, "analytic_grad") and self.kernel.analytic_grad:
-                # grad_k is batch x batch x dim
-                k_xx, grad_k = self.kernel(X, X)
-                grad_k = grad_k.sum(1)  # aggregates gradient wrt to first input
-            else:
-                X = X.detach().requires_grad_(True)
-                k_xx = self.kernel(X, X.detach(), compute_grad=False)
-                grad_k = autograd.grad(-k_xx.sum(), X)[0]
-                X.detach_()
-                k_xx.detach_()
-        else:
-            k_xx = kwargs["k_xx"]
-            grad_k = kwargs["grad_k"]
+        velocity = (k_xx @ score_func + grad_k) / X.shape[0]
 
-        velocity = (k_xx @ score_func + grad_k) / shape[0]
-        return -velocity.reshape(shape), loss
+        iter_dict = {"k_xx": k_xx, "grad_k": grad_k, "loss": loss}
+        iter_dict.update(kernel_args)
+        iter_dict = {
+            k: v.detach() if hasattr(v, "detach") else v for k, v in iter_dict.items()
+        }
+        return -velocity.reshape(X.shape), iter_dict
 
     def step(
         self,
         X: torch.Tensor,
         grad_log_p: torch.Tensor = None,
         optimizer: optim.Optimizer = None,
-        **kwargs,
+        **kernel_args,
     ):
-        # if no optimizer given, redefine optimizer to include x as parameter, since x
-        # could change between calls, n.b. this will reset momentum based optimizers
-        if optimizer is None:
-            # optimizer = self.optimizer_class(params=[X], **self.opt_args)
-            grad, loss = self._velocity(X, grad_log_p, **kwargs)
-            X = X + self.opt_args["lr"] * grad
-
         def closure():
             optimizer.zero_grad()
-            X.grad, loss = self._velocity(X, grad_log_p, **kwargs)
-            return loss
+            X.grad, iter_dict = self._velocity(X, grad_log_p, **kernel_args)
+            return iter_dict
 
-        if isinstance(optimizer, LBFGS):
-            loss = closure()
-            options = {"closure": closure, "current_loss": loss}
-            optimizer.step(options)
-        else:
-            optimizer.step(closure)
+        if isinstance(optimizer, torch.optim.Optimizer):
+            iter_dict = optimizer.step(closure)
+        else:  # manually compute SGD
+            grad, iter_dict = self._velocity(X, grad_log_p, **kernel_args)
+            X = X + self.opt_args["lr"] * grad
+        return iter_dict
 
     def optimize(
         self,
@@ -108,7 +101,7 @@ class SVGD:
         opt_state: dict = None,
         n_steps: int = 100,
         debug: bool = False,
-        **kwargs,
+        **kernel_args,
     ) -> tuple:
         X = particles.detach()
         # defined here to include x as parameter, since x could change between calls
@@ -127,12 +120,10 @@ class SVGD:
         for i in iterator:
             if score_estimator is not None:
                 X.requires_grad_(True)
-                grad_log_p, datum = score_estimator(X)
-                data_dict[i] = {**datum}
-                kwargs.update(datum)
-                X.detach_()
-            self.step(X, grad_log_p, optimizer, **kwargs)
-            X_seq = torch.cat([X_seq, X.unsqueeze(0)], dim=0)
+                grad_log_p, score_dict = score_estimator(X)
+                kernel_args.update(score_dict)
+            data_dict[i] = {**self.step(X, grad_log_p, optimizer, **kernel_args)}
+            X_seq = torch.cat([X_seq, X.detach().unsqueeze(0)], dim=0)
             if debug:
                 iterator.set_postfix(loss=X.grad.detach().norm(), refresh=False)
         data_dict["trace"] = X_seq
@@ -141,9 +132,7 @@ class SVGD:
 
 class ScaledSVGD(SVGD):
     """
-    An implementation of Stein variational gradient descent.
-
-    Adapted from: https://github.com/activatedgeek/svgd
+    An implementation of second-order (matrix) Stein variational gradient descent.
     """
 
     def __init__(
@@ -169,18 +158,15 @@ class ScaledSVGD(SVGD):
                 "SVGD needs a function to evaluate the log probability of the target",
                 "distribution or an estimate of the gradient for every particle.",
             )
-        # batch should be X.shape[0], remaining dims will be flattened
-        shape = X.shape
-        X = X.flatten(start_dim=1)
         if grad_log_p is None:
             X = X.detach().requires_grad_(True)
-            log_lik = self.log_p(X.reshape(shape)).sum()
-            score_func = autograd.grad(log_lik, X)[0].detach()
+            log_lik = self.log_p(X).sum()
+            score_func = autograd.grad(log_lik, X)[0].flatten(1)
             X.detach_()
             loss = -log_lik.detach()
         else:
-            score_func = grad_log_p  # expects the gradient to *minimize* the loss
-            loss = score_func.norm()  # this should be the NLL
+            score_func = grad_log_p
+            loss = grad_log_p.norm()
 
         if self.metric.lower() == "gaussnewton":
             # M = self._estimate_gn_hessian(score_func).mean(dim=0)
@@ -212,15 +198,20 @@ class ScaledSVGD(SVGD):
 
         if self.log_prior is not None:
             X = X.detach().requires_grad_(True)
-            log_prior_sum = self.log_prior(X.reshape(shape)).sum()
+            log_prior_sum = self.log_prior(X).sum()
             log_prior_grad = torch.autograd.grad(log_prior_sum, X)[0].detach()
             score_func = score_func + log_prior_grad
             X.detach_()
 
-        velocity = (k_xx @ score_func + grad_k) / shape[0]
+        velocity = (k_xx @ score_func + grad_k) / X.shape[0]
         if self.precondition:
             velocity = torch.linalg.solve(M, velocity.T).T
-        return -velocity.reshape(shape), loss
+
+        iter_dict = {"k_xx": k_xx, "grad_k": grad_k, "loss": loss}
+        iter_dict = {
+            k: v.detach() if hasattr(v, "detach") else v for k, v in iter_dict.items()
+        }
+        return -velocity.reshape(X.shape), iter_dict
 
     def _psd_estimate_gn_hessian(self, jacobian, eps=1e-3):
         """Computes a Gauss Newton approximation of the Hessian matrix, given the Jacobian.

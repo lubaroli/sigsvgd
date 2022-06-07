@@ -1,5 +1,5 @@
 import torch
-from stein_mpc.kernels import SignatureKernel
+from stein_mpc.kernels import PathSigKernel
 
 
 torch.random.manual_seed(0)
@@ -15,5 +15,5 @@ Y = torch.randn(BATCH, HZ, DIM)
 h = torch.tensor(2.0)
 
 
-kernel = SignatureKernel()
+kernel = PathSigKernel()
 K, dK = kernel(phi(X), phi(Y), X, depth=3, h=h.sqrt())

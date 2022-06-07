@@ -6,14 +6,8 @@ from torch import distributions as dist
 from torch import optim
 
 from ..controllers import BaseController
-from ..inference.likelihoods import CostLikelihood, ExponentiatedUtility
-from ..inference.svgd import SVGD, ScaledSVGD
-from ..kernels import (
-    BaseKernel,
-    ScaledGaussianKernel,
-    SignatureKernel,
-    TrajectoryKernel,
-)
+from ..inference import CostLikelihood, ExponentiatedUtility, ScaledSVGD, TrajectorySVGD
+from ..kernels import BaseKernel, ScaledGaussianKernel
 from ..models.base import BaseModel
 from ..utils.math import grad_gmm_log_p, to_gmm
 from ..utils.spaces import Box
@@ -38,7 +32,9 @@ class DuSt(BaseController):
         inst_cost_fn: Callable = None,
         term_cost_fn: Callable = None,
         params_log_space: bool = False,
+        action_primitives: torch.Tensor = None,
         weighted_prior: bool = False,
+        device: str = "cuda",
         roll_strategy: str = "repeat",
         optimizer_class: optim.Optimizer = optim.Adam,
         **opt_args,
@@ -92,56 +88,38 @@ class DuSt(BaseController):
         Raises:
             ValueError: Raises a ValueError if an invalid Stein Sampler is chosen.
         """
+        if device == "cuda" and torch.cuda.is_available():
+            self.dev = torch.device("cuda")
+        else:
+            self.dev = torch.device("cpu")
         super().__init__(
             observation_space, action_space, hz_len, inst_cost_fn, term_cost_fn,
         )
         # configure model params inference
+        assert n_params_samples >= 0 and isinstance(
+            n_params_samples, int
+        ), "Number of model parameter samples must be non-negative integer."
+        self.n_params_samples = n_params_samples
         if n_params_samples == 0:  # no inference, use model default params
             self.params_shape = torch.Size([])
         else:  # use Monte Carlo sampling to estimate params
-            assert n_params_samples >= 0 and isinstance(
-                n_params_samples, int
-            ), "Number of policy samples must be an integer."
             self.params_shape = torch.Size([n_params_samples])
         self._params_log_space = params_log_space
 
         # configure grad_log_p estimation
-        if n_action_samples == 0:  # will use autograd
+        assert n_action_samples >= 0 and isinstance(
+            n_action_samples, int
+        ), "Number of policy samples must be a non-negative integer."
+        if n_action_samples == 0:  # use autograd
             self.action_shape = torch.Size([])
         else:  # use Monte Carlo sampling out of policies
-            assert n_action_samples >= 0 and isinstance(
-                n_action_samples, int
-            ), "Number of policy samples must be a positive integer."
             self.action_shape = torch.Size([n_action_samples])
 
-        # number of particles
-        self.n_pol = n_pol
-        # shape of sampled rollouts
-        self.rollout_shape = (
-            self.params_shape + self.action_shape + torch.Size([self.n_pol])
-        )
-        self.policies_shape = torch.Size([self.n_pol, self.hz_len, self.dim_a])
-        # useful attributes
-        self.n_rollouts = self.rollout_shape.numel()
-        self.n_total_actions = (self.action_shape + (self.n_pol,)).numel()
-        self.n_params = n_params_samples
+        # initialize policies, sets attributes:
+        # n_pol, n_prim, rollout_shape, policies_shape, n_rollouts, n_total_actions
+        self._init_policies(10.0, n_pol, pol_mean, pol_cov, action_primitives)
 
-        # initialize policies
-        if pol_cov is None:
-            self.pol_cov = torch.eye(self.dim_a)
-        else:
-            self.pol_cov = pol_cov
-        if pol_mean is None:
-            self.pol_mean = torch.empty(self.policies_shape).uniform_(
-                torch.max(self.min_a.max(), torch.tensor(-100.0)),
-                torch.min(self.max_a.min(), torch.tensor(100.0)),
-            )
-        else:
-            assert (
-                pol_mean.shape == self.policies_shape
-            ), "Initial policies shape mismatch."
-            self.pol_mean = pol_mean.clone()
-        self.prior_weights = torch.ones(self.n_pol)
+        self.prior_weights = torch.ones(self.n_pol).to(self.dev)
         self.prior = to_gmm(self.pol_mean, self.prior_weights, self.pol_cov)
         hyper_prior = (
             SmoothedBoxPrior(self.min_a, self.max_a, 0.1).log_prob
@@ -160,12 +138,14 @@ class DuSt(BaseController):
 
         # configure stein sampler
         self.opt_state = None
-        self.kernel = kernel  # TODO: keep this for all kernels or just TK?
+        gradient_mask = torch.ones_like(self.pol_mean).to(self.dev)
+        gradient_mask[: self.n_prim] = 0.0
         if stein_sampler == "SVGD":
-            self.stein_sampler = SVGD(
+            self.stein_sampler = TrajectorySVGD(
                 kernel,
                 log_prior=hyper_prior,
                 optimizer_class=optimizer_class,
+                gradient_mask=gradient_mask,
                 **opt_args,
             )
         elif stein_sampler == "ScaledSVGD":
@@ -192,6 +172,53 @@ class DuSt(BaseController):
         # additional options
         self.w_prior = weighted_prior
         self.roll_strategy = roll_strategy
+
+    def _init_policies(
+        self, uniform_range, n_pol, pol_mean, pol_cov, action_primitives
+    ):
+        """Initializes the policies and sets useful attributes."""
+        # as actions are sampled i.i.d., policy covariance is of shape [dim_a x dim_a]
+        if pol_cov is None:
+            self.pol_cov = torch.eye(self.dim_a).to(self.dev)
+        else:
+            self.pol_cov = pol_cov.to(self.dev)
+        if pol_mean is None:
+            self.pol_mean = (
+                torch.empty(n_pol, self.hz_len, self.dim_a)
+                .uniform_(
+                    torch.max(self.min_a.max(), torch.tensor(-uniform_range)),
+                    torch.min(self.max_a.min(), torch.tensor(uniform_range)),
+                )
+                .to(self.dev)
+            )
+        else:
+            assert (
+                pol_mean.shape == self.policies_shape
+            ), "Initial policies shape mismatch."
+            self.pol_mean = pol_mean.clone().to(self.dev)
+        if action_primitives is not None:
+            assert (
+                action_primitives.shape[-2:] == (self.hz_len, self.dim_a)
+                and action_primitives.ndim == 3
+            )
+            self.n_prim = action_primitives.shape[0]
+            self.pol_mean = torch.cat(
+                [action_primitives.to(self.dev), self.pol_mean], dim=0
+            )
+            # number of particles
+            self.n_pol = self.pol_mean.shape[0]
+        else:
+            # number of particles
+            self.n_pol = n_pol
+            self.n_prim = 0
+
+        # useful attributes
+        self.rollout_shape = (
+            self.params_shape + self.action_shape + torch.Size([self.n_pol])
+        )
+        self.policies_shape = torch.Size([self.n_pol, self.hz_len, self.dim_a])
+        self.n_rollouts = self.rollout_shape.numel()
+        self.n_total_actions = (self.action_shape + (self.n_pol,)).numel()
 
     def _compute_cost(
         self, states: torch.Tensor, actions: torch.Tensor
@@ -257,7 +284,7 @@ class DuSt(BaseController):
             # create dict with `uncertain_params` as keys for `model.step()`
             params_dict = model.params_to_dict(params)
             # flatten policies into single dim and repeat for each sampled param
-            actions = base_actions.flatten(end_dim=-3).tile(self.n_params, 1, 1)
+            actions = base_actions.flatten(end_dim=-3).tile(self.n_params_samples, 1, 1)
         else:  # use default `model` params
             params_dict = None
             actions = base_actions.flatten(end_dim=-3)
@@ -455,7 +482,7 @@ class DuSt(BaseController):
             Tuple[torch.Tensor, dict]: Returns the current best action sequence and a
               dictionary with iteration data.
         """ """        """
-        state = torch.as_tensor(state, dtype=torch.float)
+        state = torch.as_tensor(state, dtype=torch.float).to(self.dev)
 
         def score_estimator(policies: torch.Tensor) -> Tuple[torch.Tensor, dict]:
             """This function is called by the Stein optimizer to compute the gradient
@@ -472,7 +499,7 @@ class DuSt(BaseController):
                   dictionary using the keys `k_xx` and `grad_k`, respectively.
             """
             # flat_pol gradients will be set by Stein Sampler
-            iter_dict = {}
+            score_dict = {}
             if self.action_shape:
                 actions = self._sample_actions(policies)
             else:  # will use autograd on policies mean
@@ -483,40 +510,14 @@ class DuSt(BaseController):
             grad_log_p, loss = self._get_grad_log_p(costs, actions)
             # sum gradient along actions samples and flatten for stein
             grad_log_p = grad_log_p.flatten(1)
-            # compute kernel gram matrix and gradient using trajectory kernel
-            if isinstance(self.kernel, TrajectoryKernel):
-                # Selects only X, Y position starting on time t+1
-                tau = trajectories[..., 1:, :2].clone()
-                if self.action_shape:
-                    tau = tau.mean(0)
-                K, dK = (0, 0)
-                for i in range(tau.shape[-1]):
-                    # computing gradients w.r.t. policies is equal to computing the sum
-                    # of gradients w.r.t. sampled actions
-                    Ki, dKi = self.kernel(
-                        tau[..., i], tau[..., i].detach(), policies, compute_grad=True
-                    )
-                    K = K + Ki
-                    dK = dK + dKi
-                K = K / tau.shape[-1]
-                dK = dK.flatten(1) / tau.shape[-1]
-                iter_dict["k_xx"] = K.detach()
-                iter_dict["grad_k"] = dK.detach()
-            elif isinstance(self.kernel, SignatureKernel):
-                # Selects only X, Y position starting on time t+1
-                tau = trajectories[..., 1:, :2].clone()
-                if self.action_shape:
-                    tau = tau.mean(0)
-                K, dK = self.kernel(tau, tau, policies, compute_grad=True)
-                iter_dict["k_xx"] = K.detach()
-                iter_dict["grad_k"] = dK.detach().flatten(1)
 
-            iter_dict["actions"] = actions.detach()
-            iter_dict["costs"] = costs.detach()
-            iter_dict["loss"] = loss.detach()
-            iter_dict["trajectories"] = trajectories.detach()
-            iter_dict["dyn_params"] = params_dict
-            return grad_log_p, iter_dict
+            score_dict["actions"] = actions
+            score_dict["costs"] = costs
+            score_dict["loss"] = loss
+            score_dict["trajectories"] = trajectories
+            score_dict["model_params"] = params_dict
+            score_dict["sample_shape"] = self.action_shape
+            return grad_log_p, score_dict
 
         # stein particles have shape [batch, extra_dims] and flattens extra_dims.
         data_dict, self.opt_state = self.stein_sampler.optimize(

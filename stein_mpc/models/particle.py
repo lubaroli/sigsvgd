@@ -1,5 +1,6 @@
+from math import ceil
+
 import matplotlib.pyplot as plt
-import numpy as np
 import torch
 from matplotlib import cm
 
@@ -30,8 +31,13 @@ class ParticleModel(BaseModel):
         verbose=False,
         deterministic=False,
         euler_steps=1,
+        device: str = "cuda",
         **kwargs,
     ):
+        if device == "cuda" and torch.cuda.is_available():
+            self.dev = torch.device("cuda")
+        else:
+            self.dev = torch.device("cpu")
         params_dict = {"mass": mass}
         super().__init__(params_dict=params_dict, **kwargs)
         self.__max_speed = (
@@ -59,12 +65,12 @@ class ParticleModel(BaseModel):
         else:
             raise IOError('control_type "{}" not recognized'.format(control_type))
         if target_state is None:
-            self.target = torch.zeros(self.observation_space.dim)
+            self.target = torch.zeros(self.observation_space.dim).to(self.dev)
         else:
-            self.target = torch.as_tensor(target_state)
+            self.target = torch.as_tensor(target_state).to(self.dev)
 
         self.dyn_std = noise_std
-        self.init_state = torch.as_tensor(init_state)
+        self.init_state = torch.as_tensor(init_state).to(self.dev)
         self.euler_steps = euler_steps
         self._small_dt = self.dt / euler_steps
         self.control_type = control_type
@@ -78,12 +84,12 @@ class ParticleModel(BaseModel):
         assert map_size[1] % 2 == 0
         self.map_size = map_size
         self.cmap_size = [0, 0]
-        self.cmap_size[0] = torch.as_tensor(map_size[0] / self.map_cell_size).ceil()
-        self.cmap_size[1] = torch.as_tensor(map_size[1] / self.map_cell_size).ceil()
+        self.cmap_size[0] = ceil(map_size[0] / self.map_cell_size)
+        self.cmap_size[1] = ceil(map_size[1] / self.map_cell_size)
         # Map center (in cells)
         origin_xi = int(self.cmap_size[0] / 2)
         origin_yi = int(self.cmap_size[1] / 2)
-        self.c_offset = torch.Tensor([origin_xi, origin_yi])
+        self.c_offset = [origin_xi, origin_yi]
 
         self.verbose = verbose
         self.deterministic = deterministic
@@ -140,8 +146,9 @@ class ParticleModel(BaseModel):
             (m,) = batch_params.values()
         else:
             (m,) = self.params_dict.values()
-        # Prepare action vector
-        acts = actions.clone()
+        # Prepare action and state vectors
+        acts = actions.clone().to(self.dev)
+        states = states.to(self.dev)
         if not self.deterministic:
             # Noise in control channel
             noise = self.dyn_std * torch.randn_like(acts)
@@ -206,24 +213,29 @@ class ParticleModel(BaseModel):
         plot_goal=True,
         **plot_kwargs,
     ):
+        obst_map = self.obst_map.map.T.cpu()
+        init_state = self.init_state[:2].cpu()
+        target_state = self.target[:2].cpu()
+        states = states[..., :2].cpu()
+
         ax = plt.gca() if ax is None else ax
         ax.set_xlim(0, self.cmap_size[0])
         ax.set_ylim(0, self.cmap_size[1])
         if self.with_obstacle:
-            ax.imshow(self.obst_map.map.T, cmap=cmap)
+            ax.imshow(obst_map, cmap=cmap)
         if plot_goal:
             # plot initial state
             ax.scatter(
-                self.to_map_coord(self.init_state[:2])[0],
-                self.to_map_coord(self.init_state[:2])[1],
+                self.to_map_coord(init_state)[0],
+                self.to_map_coord(init_state)[1],
                 marker="o",
                 color="r",
                 s=20,
             )
             # plot target state
             ax.scatter(
-                self.to_map_coord(self.target[:2])[0],
-                self.to_map_coord(self.target[:2])[1],
+                self.to_map_coord(target_state)[0],
+                self.to_map_coord(target_state)[1],
                 marker="*",
                 color="r",
                 s=100,
@@ -231,14 +243,14 @@ class ParticleModel(BaseModel):
         # plot state
         if states is not None:
             ax.plot(
-                self.to_map_coord(states[..., :2])[..., 0],
-                self.to_map_coord(states[..., :2])[..., 1],
+                self.to_map_coord(states)[..., 0],
+                self.to_map_coord(states)[..., 1],
                 **plot_kwargs,
             )
         # plot rollouts
         if rollouts is not None:
             # rollouts dimensions are batch x n_policies x timestep x state
-            map_rollouts = self.to_map_coord(rollouts[..., :2])
+            map_rollouts = self.to_map_coord(rollouts[..., :2]).cpu()
             n_pol = map_rollouts.shape[1]
             colour = iter(cm.rainbow(torch.linspace(0, 1, n_pol).numpy()))
             for policy in range(n_pol):
@@ -259,7 +271,8 @@ class ParticleModel(BaseModel):
 
     def to_map_coord(self, coord_vec):
         assert coord_vec.shape[-1] == 2, "Coordinates must be 2-D."
-        return self.c_offset + coord_vec / self.map_cell_size
+        offset = torch.as_tensor(self.c_offset, device=coord_vec.device)
+        return offset + coord_vec / self.map_cell_size
 
     def init_cost_weights(self, params):
         if params is None:
@@ -278,29 +291,23 @@ class ParticleModel(BaseModel):
         w_qvel = [params["w_qvel"]] * 2
 
         if self.control_type == "velocity":
-            self.w_state = torch.as_tensor(w_qpos)
+            self.w_state = torch.as_tensor(w_qpos).to(self.dev)
         elif self.control_type == "acceleration":
-            self.w_state = torch.as_tensor(w_qpos + w_qvel)
+            self.w_state = torch.as_tensor(w_qpos + w_qvel).to(self.dev)
 
         # Control cost weights
-        self.w_ctrl = torch.as_tensor([params["w_ctrl"]] * self.action_space.dim)
+        self.w_ctrl = torch.as_tensor([params["w_ctrl"]] * self.action_space.dim).to(
+            self.dev
+        )
 
         # Terminal cost weights
         w_qpos_T = [params["w_qpos_T"]] * 2  # Cartesian dist to target
         w_qvel_T = [params["w_qvel_T"]] * 2
 
         if self.control_type == "velocity":
-            self.w_term = torch.as_tensor(w_qpos_T)
+            self.w_term = torch.as_tensor(w_qpos_T).to(self.dev)
         elif self.control_type == "acceleration":
-            self.w_term = torch.as_tensor(w_qpos_T + w_qvel_T)
+            self.w_term = torch.as_tensor(w_qpos_T + w_qvel_T).to(self.dev)
 
         # Obstacle cost weights
-        self.w_obs = torch.as_tensor([params["w_obs"]])
-
-    def to_numpy(self, tensor):
-        if isinstance(tensor, torch.Tensor):
-            return tensor.detach().clone().cpu().numpy()
-        elif isinstance(tensor, np.ndarray):
-            return tensor
-        else:
-            raise IOError("Invalid type for numpy conversion.")
+        self.w_obs = torch.as_tensor([params["w_obs"]]).to(self.dev)

@@ -15,7 +15,11 @@ class ObstacleMap:
     Generates an occupancy grid.
     """
 
-    def __init__(self, map_dim, cell_size):
+    def __init__(self, map_dim, cell_size, device="cuda"):
+        if device == "cuda" and torch.cuda.is_available():
+            self.dev = torch.device("cuda")
+        else:
+            self.dev = torch.device("cpu")
 
         assert map_dim[0] % 2 == 0
         assert map_dim[1] % 2 == 0
@@ -24,7 +28,7 @@ class ObstacleMap:
         cmap_dim[0] = ceil(map_dim[0] / cell_size)
         cmap_dim[1] = ceil(map_dim[1] / cell_size)
 
-        self.map = np.zeros(cmap_dim)
+        self.map = torch.zeros(cmap_dim).to(self.dev)
         self.cell_size = cell_size
 
         # Map center (in cells)
@@ -37,7 +41,7 @@ class ObstacleMap:
         self.xlim = [-x_range / 2, x_range / 2]
         self.ylim = [-y_range / 2, y_range / 2]
 
-        self.c_offset = torch.Tensor([self.origin_xi, self.origin_yi])
+        self.c_offset = torch.tensor([self.origin_xi, self.origin_yi]).to(self.dev)
 
     def convert_map(self):
         self.map_torch = from_np(self.map)
@@ -85,7 +89,7 @@ class ObstacleMap:
 
         # Collisions
         try:
-            collision_vals = self.map_torch[X_occ[..., 0], X_occ[..., 1]]
+            collision_vals = self.map[X_occ[..., 0], X_occ[..., 1]]
         except Exception as e:
             print(e)
             print(X_occ)
@@ -371,8 +375,6 @@ def generate_obstacle_map(
                     )
 
                 num_attempts += 1
-
-    obst_map.convert_map()
 
     # Fit mapping model
     if map_type == "direct":
