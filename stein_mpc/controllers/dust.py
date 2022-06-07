@@ -209,6 +209,8 @@ class DuSt(BaseController):
         x_vec = states[..., :-1, :].reshape(-1, self.dim_s)
         x_final = states[..., -1, :].reshape(-1, self.dim_s)
         a_vec = actions.reshape(-1, self.dim_a)
+        a_vec = a_vec.to(x_vec.device)
+
         inst_costs = self.inst_cost_fn(x_vec, a_vec, n_pol=self.n_pol)
         term_costs = self.term_cost_fn(x_final, n_pol=self.n_pol)
 
@@ -263,7 +265,8 @@ class DuSt(BaseController):
         states = init_state.expand(self.n_rollouts, 1, -1).clone()
 
         # generate rollouts
-        for t in range(self.hz_len):
+        from tqdm import trange
+        for t in trange(self.hz_len, leave=False, desc='Horizon'):
             states = torch.cat(
                 [
                     states,
@@ -421,6 +424,7 @@ class DuSt(BaseController):
         model: BaseModel,
         params_dist: dist.Distribution,
         steps: int = 5,
+        debug: bool = False,
     ) -> Tuple[torch.Tensor, dict]:
         """Computes the next sequence of actions and updates the controller state.
 
@@ -516,7 +520,7 @@ class DuSt(BaseController):
 
         # stein particles have shape [batch, extra_dims] and flattens extra_dims.
         data_dict, self.opt_state = self.stein_sampler.optimize(
-            self.pol_mean, score_estimator, self.opt_state, steps
+            self.pol_mean, score_estimator, self.opt_state, steps, debug=debug,
         )
         # to compute the weights, we may either re-sample the likelihood to get the
         # expected cost of the new θ_i or re-use the costs computed during the

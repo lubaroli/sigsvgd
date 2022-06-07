@@ -118,7 +118,8 @@ class SVGD:
         grad_log_p = None
         data_dict = {}
         if debug:
-            iterator = trange(n_steps, position=0, leave=True)
+            # iterator = trange(n_steps, position=0, leave=True)
+            iterator = trange(n_steps, leave=False, desc='SVGD')
         else:
             iterator = range(n_steps)
 
