@@ -5,7 +5,7 @@ import torch.autograd as autograd
 import torch.optim as optim
 from tqdm import trange
 
-from ..kernels import BaseKernel
+from ..kernels import BaseKernel, GaussianKernel
 
 
 class SVGD:
@@ -14,28 +14,31 @@ class SVGD:
 
     def __init__(
         self,
-        kernel: BaseKernel,
+        kernel: BaseKernel = None,
         log_p: Callable = None,
         log_prior: Callable = None,
         bw_scale: float = 1.0,
         optimizer_class: optim.Optimizer = optim.Adam,
         **opt_args,
     ):
-        self.kernel = kernel
+        if kernel is None:
+            self.kernel = GaussianKernel()
+        else:
+            self.kernel = kernel
         self.log_p = log_p
         self.log_prior = log_prior
         self.bw_scale = bw_scale
         self.optimizer_class = optimizer_class
         self.opt_args = opt_args
 
-    def _compute_kernel(self, X, **kernel_args):
+    def _compute_kernel(self, X: torch.Tensor, **kernel_args):
         if hasattr(self.kernel, "analytic_grad") and self.kernel.analytic_grad:
             # grad_k is batch x batch x dim
-            k_xx, grad_k = self.kernel(X, X)
+            k_xx, grad_k = self.kernel(X.flatten(1), X.flatten(1))
             grad_k = grad_k.sum(1)  # aggregates gradient wrt to first input
         else:
             X = X.detach().requires_grad_(True)
-            k_xx = self.kernel(X, X.detach(), compute_grad=False)
+            k_xx = self.kernel(X.flatten(1), X.detach().flatten(1), compute_grad=False)
             grad_k = autograd.grad(-k_xx.sum(), X)[0]
         return k_xx.detach(), grad_k.detach()
 
@@ -47,7 +50,10 @@ class SVGD:
                 "SVGD needs a function to evaluate the log probability of the target",
                 "distribution or an estimate of the gradient for every particle.",
             )
-        k_xx, grad_k = self._compute_kernel(X, **kernel_args)
+        if "k_xx" in kernel_args and "grad_k" in kernel_args:
+            k_xx, grad_k = kernel_args["k_xx"], kernel_args["grad_k"].flatten(1)
+        else:
+            k_xx, grad_k = self._compute_kernel(X, **kernel_args)
 
         if grad_log_p is None:
             X = X.detach().requires_grad_(True)
@@ -56,7 +62,7 @@ class SVGD:
             X.detach_()
             loss = -log_lik.detach()
         else:
-            score_func = grad_log_p
+            score_func = grad_log_p.flatten(1)
             loss = grad_log_p.norm()
 
         if self.log_prior is not None:
