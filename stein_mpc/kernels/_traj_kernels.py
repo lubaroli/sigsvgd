@@ -89,7 +89,7 @@ class PathSigKernel(BaseKernel):
         self,
         X: torch.Tensor,
         Y: torch.Tensor,
-        actions: torch.Tensor,
+        ref_vector: torch.Tensor,
         depth: int = 3,
         h: float = None,
         compute_grad=True,
@@ -123,7 +123,7 @@ class PathSigKernel(BaseKernel):
         gamma = -0.5 / h ** 2
         K = (gamma * sq_dists).exp()
         if compute_grad:
-            d_K = torch.autograd.grad(K.sum(), actions, retain_graph=True)[0]
+            d_K = torch.autograd.grad(K.sum(), ref_vector, retain_graph=True)[0]
             return K, d_K
         else:
             return K
