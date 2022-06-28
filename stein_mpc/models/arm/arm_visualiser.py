@@ -24,8 +24,9 @@ class RobotVisualiser:
             )
         ]
 
-    def plot_arms(self, qs: ConfigurationSpaceType,
-                  highlight_end_effector: bool = False) -> List[BaseTraceType]:
+    def plot_arms(
+        self, qs: ConfigurationSpaceType, highlight_end_effector: bool = False
+    ) -> List[BaseTraceType]:
         joints_xs = self.robot.qs_to_joints_xs(qs).numpy().swapaxes(0, 1)
 
         # create an array that denote the end of sequence
@@ -47,11 +48,18 @@ class RobotVisualiser:
                 y=series[..., 1].reshape(-1),
                 z=series[..., 2].reshape(-1),
                 marker_color="green",
+                name="Arm links & Joints",
             )
         ]
 
         if highlight_end_effector:
             traces.extend(
-                self.plot_xs(joints_xs[:, -1, :], color='blue', marker_symbol='x',
-                             marker_size=4))
+                self.plot_xs(
+                    joints_xs[:, -1, :],
+                    color="blue",
+                    marker_symbol="x",
+                    marker_size=4,
+                    name="End effectors",
+                )
+            )
         return traces

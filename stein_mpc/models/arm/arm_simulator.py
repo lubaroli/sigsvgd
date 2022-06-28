@@ -14,13 +14,13 @@ ConfigurationSpaceType = torch.Tensor
 
 class Robot:
     def __init__(
-            self,
-            urdf_path: str,
-            target_link_names: List[str],
-            end_effector_link_name: str,
-            start_position: List[float] = (0, 0, 0),
-            start_orientation: List[float] = (0, 0, 0, 1),
-            device=None,
+        self,
+        urdf_path: str,
+        target_link_names: List[str],
+        end_effector_link_name: str,
+        start_position: List[float] = (0, 0, 0),
+        start_orientation: List[float] = (0, 0, 0, 1),
+        device=None,
     ):
         self.urdf_path = urdf_path
         self.target_link_names = target_link_names
@@ -37,7 +37,8 @@ class Robot:
         ).eval()
         # setup pos and rot
         self.learnable_robot_model._bodies[0].pose._trans[:, ...] = torch.Tensor(
-            start_position)
+            start_position
+        )
         self.learnable_robot_model._bodies[0].pose._rot[:, ...] = torch.Tensor(
             p.getMatrixFromQuaternion(start_orientation)
         ).reshape(3, 3)
@@ -64,7 +65,7 @@ class Robot:
         ###############################################################
 
     def ee_xs_to_qs(
-            self, xs: WorkSpaceType, reference_orientation: Optional[List[float]] = None
+        self, xs: WorkSpaceType, reference_orientation: Optional[List[float]] = None
     ) -> ConfigurationSpaceType:
         """
         Given xs with size [b x 3], returns the corresponding configurations
@@ -89,7 +90,7 @@ class Robot:
         return torch.stack([pose[0] for pose in self.qs_to_joints_pose(qs)])
 
     def qs_to_joints_pose(
-            self, qs: ConfigurationSpaceType
+        self, qs: ConfigurationSpaceType
     ) -> List[Tuple[torch.Tensor]]:
         """
         Given batch of qs
