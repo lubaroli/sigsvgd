@@ -195,3 +195,4 @@ data/
 .DS_Store
 .envrc
 .python-virtualenv
+robodata/

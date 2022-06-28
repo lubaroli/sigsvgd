@@ -164,4 +164,4 @@ def visualise_model_pred(
         marker_showscale=True,
         mode='markers',
     )])
-    return fig.show()
+    return fig
