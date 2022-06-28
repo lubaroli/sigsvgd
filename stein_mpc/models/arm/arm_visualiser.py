@@ -4,7 +4,7 @@ import numpy as np
 from plotly import graph_objects as go
 from plotly.basedatatypes import BaseTraceType
 
-from arm_simulator import Robot, WorkSpaceType, ConfigurationSpaceType
+from .arm_simulator import Robot, WorkSpaceType, ConfigurationSpaceType
 
 
 class RobotVisualiser:
