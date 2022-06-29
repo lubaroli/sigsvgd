@@ -106,3 +106,21 @@ class Robot:
         for j_idx in range(pybullet_tools.utils.get_num_joints(self.pyb_robot_id)):
             print(f"===== Joint {j_idx} =====")
             print(pybullet_tools.utils.get_joint_info(self.pyb_robot_id, j_idx))
+
+    def get_joints_limits(self):
+        lowers = []
+        uppers = []
+        for limits in self.learnable_robot_model.get_joint_limits():
+
+            lowers.append(limits["lower"])
+            uppers.append(limits["upper"])
+        return torch.Tensor(lowers), torch.Tensor(uppers)
+
+    # def get_joints_limits(self):
+    #     lowers = []
+    #     uppers = []
+    #     for j_idx in range(pybullet_tools.utils.get_num_joints(self.pyb_robot_id)):
+    #         limit = pybullet_tools.utils.get_joint_limits(self.pyb_robot_id, j_idx)
+    #         lowers.append(limit[0])
+    #         uppers.append(limit[1])
+    #     return torch.Tensor(lowers),torch.Tensor(uppers)

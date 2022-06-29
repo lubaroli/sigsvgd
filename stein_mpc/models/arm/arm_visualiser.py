@@ -25,7 +25,12 @@ class RobotVisualiser:
         ]
 
     def plot_arms(
-        self, qs: ConfigurationSpaceType, highlight_end_effector: bool = False
+        self,
+        qs: ConfigurationSpaceType,
+        highlight_end_effector: bool = False,
+        color="green",
+        name="Arm links & Joints",
+        showlegend=True,
     ) -> List[BaseTraceType]:
         joints_xs = self.robot.qs_to_joints_xs(qs).numpy().swapaxes(0, 1)
 
@@ -47,8 +52,9 @@ class RobotVisualiser:
                 x=series[..., 0].reshape(-1),
                 y=series[..., 1].reshape(-1),
                 z=series[..., 2].reshape(-1),
-                marker_color="green",
-                name="Arm links & Joints",
+                marker_color=color,
+                name=name,
+                showlegend=showlegend,
             )
         ]
 
@@ -60,6 +66,7 @@ class RobotVisualiser:
                     marker_symbol="x",
                     marker_size=4,
                     name="End effectors",
+                    showlegend=showlegend,
                 )
             )
         return traces

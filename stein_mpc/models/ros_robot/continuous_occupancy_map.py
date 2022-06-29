@@ -31,12 +31,12 @@ class ContinuousOccupancyMap(nn.Module):
 
 class ModelTrainer(pl.LightningModule):
     def __init__(
-            self,
-            class_weight=(1,),
-            hidden_size=200,
-            n_hidden_layers=5,
-            n_dimension=3,
-            learning_rate=1e-3,
+        self,
+        class_weight=(1,),
+        hidden_size=200,
+        n_hidden_layers=5,
+        n_dimension=3,
+        learning_rate=1e-3,
     ):
         super().__init__()
 
@@ -53,7 +53,7 @@ class ModelTrainer(pl.LightningModule):
 
     def _step(self, batch, batch_idx):
         x = batch[:, : self.n_dimension]
-        y = batch[:, self.n_dimension: self.n_dimension + 1]
+        y = batch[:, self.n_dimension : self.n_dimension + 1]
 
         # skip the last sigmoid and use BCEwithLogit
         pred = self.net.layers[:-1](x)
@@ -111,16 +111,9 @@ def train(data_fname="obspts.csv"):
     ##########################################
     batch_size = 1024
     train_set = utils.data.DataLoader(
-        train_set,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=12,
+        train_set, batch_size=batch_size, shuffle=True, num_workers=12,
     )
-    valid_set = utils.data.DataLoader(
-        valid_set,
-        batch_size=batch_size,
-        num_workers=12,
-    )
+    valid_set = utils.data.DataLoader(valid_set, batch_size=batch_size, num_workers=12,)
     trainer.fit(model, train_set, valid_set)
     return model
 
@@ -130,25 +123,30 @@ def load_trained_model(weight_fname):
 
 
 def visualise_model_pred(
-        model,
-        prob_threshold=.1,
-        min_x=-2, max_x=2,
-        min_y=-2, max_y=2,
-        min_z=-0.7, max_z=1.5,
-        num_steps=100,
-        with_random_gaussian_noise=None,
+    model,
+    prob_threshold=0.1,
+    min_x=-2,
+    max_x=2,
+    min_y=-2,
+    max_y=2,
+    min_z=-0.7,
+    max_z=1.5,
+    num_steps=100,
+    with_random_gaussian_noise=None,
+    marker_showscale=True,
 ):
     x_ = np.linspace(min_x, max_x, num=num_steps)
     y_ = np.linspace(min_y, max_y, num=num_steps)
     z_ = np.linspace(min_z, max_z, num=int(num_steps))
-    x, y, z = np.meshgrid(x_, y_, z_, indexing='ij')
+    x, y, z = np.meshgrid(x_, y_, z_, indexing="ij")
     coords = np.c_[x.ravel(), y.ravel(), z.ravel()]
 
     query_pt = torch.Tensor(coords)
     if with_random_gaussian_noise is not None:
-        query_pt = query_pt + torch.randn(coords.shape) * float(with_random_gaussian_noise)
+        query_pt = query_pt + torch.randn(coords.shape) * float(
+            with_random_gaussian_noise
+        )
 
-    print(query_pt)
     query_pt_pred = model(query_pt)
 
     import plotly.graph_objects as go
@@ -158,10 +156,17 @@ def visualise_model_pred(
     _criteria = prob > prob_threshold
     _query_pt = query_pt[_criteria]
 
-    fig = go.Figure(data=[go.Scatter3d(
-        x=_query_pt[:, 0], y=_query_pt[:, 1], z=_query_pt[:, 2],
-        marker_color=prob[_criteria],
-        marker_showscale=True,
-        mode='markers',
-    )])
+    fig = go.Figure(
+        data=[
+            go.Scatter3d(
+                x=_query_pt[:, 0],
+                y=_query_pt[:, 1],
+                z=_query_pt[:, 2],
+                marker_color=prob[_criteria],
+                marker_showscale=marker_showscale,
+                name="prob-map",
+                mode="markers",
+            )
+        ]
+    )
     return fig

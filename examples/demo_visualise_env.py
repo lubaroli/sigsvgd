@@ -38,7 +38,8 @@ fig.show()
 from stein_mpc.models.ros_robot import continuous_occupancy_map
 
 net = continuous_occupancy_map.load_trained_model(
-    f"{THIS_DIR}/../robodata/001_continuous-occmap-weight.ckpt")
+    f"{THIS_DIR}/../robodata/001_continuous-occmap-weight.ckpt"
+)
 
 fig = continuous_occupancy_map.visualise_model_pred(net, prob_threshold=0.8)
 
