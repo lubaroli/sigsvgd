@@ -134,6 +134,7 @@ def visualise_model_pred(
     num_steps=100,
     with_random_gaussian_noise=None,
     marker_showscale=True,
+    marker_colorscale=None,
 ):
     x_ = np.linspace(min_x, max_x, num=num_steps)
     y_ = np.linspace(min_y, max_y, num=num_steps)
@@ -166,6 +167,7 @@ def visualise_model_pred(
                 marker_showscale=marker_showscale,
                 name="prob-map",
                 mode="markers",
+                marker_colorscale=marker_colorscale,
             )
         ]
     )

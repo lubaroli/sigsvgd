@@ -49,7 +49,7 @@ occmap = continuous_occupancy_map.load_trained_model(
 )
 
 fig = continuous_occupancy_map.visualise_model_pred(
-    occmap, prob_threshold=0.8, marker_showscale=False
+    occmap, prob_threshold=0.8, marker_showscale=False, marker_colorscale="viridis"
 )
 
 ############################################################
@@ -74,42 +74,43 @@ print("\n\n")
 
 torch.manual_seed(0)
 
-for arm_i in range(5):
-    qs = torch.rand(9) * (limit_uppers - limit_lowers) + limit_lowers
-    qs.requires_grad_()
-    optimizer = optim.Adam([qs], lr=5e-2)
+batch_size = 5
 
-    for i in range(20):
-        _qs = qs.detach().clone()
+qs = torch.rand(batch_size, 9) * (limit_uppers - limit_lowers) + limit_lowers
+qs.requires_grad_()
+optimizer = optim.Adam([qs], lr=5e-2)
 
-        optimizer.zero_grad()
+for i in range(20):
+    _qs = qs.detach().clone()
 
-        cost = occmap(robot.qs_to_joints_xs(qs))
+    optimizer.zero_grad()
 
-        print(f"===== arm {arm_i} | step {i} =====")
-        print(f"qs:   {_qs.numpy().reshape(-1)}")
-        print(f"cost: {cost.detach().numpy().reshape(-1)}")
-        cost = cost.sum()
-        print(f"cost sum: {cost.detach().numpy().reshape(-1)}")
-        cost.backward()
-        print(f"qs-grad: {qs.grad}")
+    cost = occmap(robot.qs_to_joints_xs(qs))
 
-        fig.add_traces(
-            robot_visualiser.plot_arms(
-                qs.detach(), highlight_end_effector=True, showlegend=False
-            )
-        )
-
-        optimizer.step()
-
-    print(f"\n\n\n===== arm {arm_i} | final =====")
-    print(f"{qs.detach().numpy().reshape(-1)}")
+    print(f"===== step {i} =====")
+    print(f"qs:   {_qs.numpy().squeeze()}")
+    print(f"cost: {cost.detach().numpy().squeeze()}")
+    cost = cost.sum()
+    print(f"cost sum: {cost.detach().numpy().squeeze()}")
+    cost.backward()
+    print(f"qs-grad: {qs.grad}")
 
     fig.add_traces(
         robot_visualiser.plot_arms(
-            qs.detach(), highlight_end_effector=True, color="black", name="final arm"
+            qs.detach(), highlight_end_effector=True, showlegend=False
         )
     )
+
+    optimizer.step()
+
+print(f"\n\n\n===== final =====")
+print(f"{qs.detach().numpy().squeeze()}")
+
+fig.add_traces(
+    robot_visualiser.plot_arms(
+        qs.detach(), highlight_end_effector=True, color="purple", name="final arm"
+    )
+)
 
 
 fig.show()
