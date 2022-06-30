@@ -132,6 +132,7 @@ def load_trained_model(weight_fname, map_location="cpu"):
             if k.startswith(_net_prefix_token):
                 _inner_weights[k[len(_net_prefix_token) :]] = v
         net = ContinuousOccupancyMap()
+        net.load_state_dict(_inner_weights)
 
         return net
 
