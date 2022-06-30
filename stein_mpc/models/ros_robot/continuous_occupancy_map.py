@@ -118,8 +118,22 @@ def train(data_fname="obspts.csv"):
     return model
 
 
-def load_trained_model(weight_fname):
-    return ModelTrainer.load_from_checkpoint(weight_fname).net
+def load_trained_model(weight_fname, map_location="cpu"):
+    try:
+        # use the built in loading function
+        return ModelTrainer.load_from_checkpoint(weight_fname).net
+
+    except TypeError:
+        # try to manually load the weight
+        weights = torch.load(weight_fname, map_location=map_location)
+        _inner_weights = {}
+        _net_prefix_token = "net."
+        for k, v in weights["state_dict"].items():
+            if k.startswith(_net_prefix_token):
+                _inner_weights[k[len(_net_prefix_token) :]] = v
+        net = ContinuousOccupancyMap()
+
+        return net
 
 
 def visualise_model_pred(
