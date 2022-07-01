@@ -32,6 +32,7 @@ class RobotVisualiser:
         highlight_end_effector: bool = False,
         color="green",
         name="Arm links & Joints",
+            mode="lines+markers",
         showlegend=True,
     ) -> List[BaseTraceType]:
         joints_xs = self.robot.qs_to_joints_xs(qs).numpy().swapaxes(0, 1)
@@ -57,6 +58,7 @@ class RobotVisualiser:
                 marker_color=color,
                 name=name,
                 showlegend=showlegend,
+                mode=mode,
             )
         ]
 

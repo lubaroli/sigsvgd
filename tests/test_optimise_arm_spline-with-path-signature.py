@@ -98,10 +98,16 @@ def plot_all_trajectory_end_effector_from_knot(
     traj = traj.reshape(-1, _original_shape[-1])
 
     xs_all_joints = robot.qs_to_joints_xs(traj)
-
     traj_of_end_effector = xs_all_joints[-1, ...]
     traj_of_end_effector = traj_of_end_effector.reshape(
         _original_shape[0], _original_shape[1], -1
+    )
+
+    _original_knot_shape = x.shape
+    xs_of_knot = robot.qs_to_joints_xs(x.reshape(-1, _original_knot_shape[-1]))
+    traj_of_knot = xs_of_knot[-1, ...]
+    traj_of_knot = traj_of_knot.reshape(
+        _original_knot_shape[0], _original_knot_shape[1], -1
     )
 
     color_gen = color_generator()
@@ -115,6 +121,15 @@ def plot_all_trajectory_end_effector_from_knot(
                 line_width=10,
             )
         )
+        fig.add_traces(
+            robot_visualiser.plot_xs(
+                traj_of_knot[i, ...],
+                color=color,
+                showlegend=False,
+                mode="markers",
+                marker_size=10,
+            )
+        )
 
     # plot start/end
     for qs, name, color in [
@@ -123,7 +138,11 @@ def plot_all_trajectory_end_effector_from_knot(
     ]:
         fig.add_traces(
             robot_visualiser.plot_arms(
-                qs.detach(), highlight_end_effector=True, name=name, color=color,
+                qs.detach(),
+                highlight_end_effector=True,
+                name=name,
+                color=color,
+                mode="lines",
             )
         )
 
