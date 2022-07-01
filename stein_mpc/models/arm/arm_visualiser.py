@@ -12,14 +12,16 @@ class RobotVisualiser:
         self.robot = robot
 
     @staticmethod
-    def plot_xs(xs: WorkSpaceType, color="red", **kwargs) -> List[BaseTraceType]:
+    def plot_xs(
+        xs: WorkSpaceType, color="red", mode="markers", **kwargs
+    ) -> List[BaseTraceType]:
         return [
             go.Scatter3d(
                 x=xs[..., 0].reshape(-1),
                 y=xs[..., 1].reshape(-1),
                 z=xs[..., 2].reshape(-1),
                 marker_color=color,
-                mode="markers",
+                mode=mode,
                 **kwargs,
             )
         ]

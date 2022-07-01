@@ -11,6 +11,14 @@ from stein_mpc.models.arm import arm_visualiser
 
 THIS_DIR = os.path.dirname(os.path.realpath(__file__))
 
+
+def color_generator():
+    import plotly.express as px
+
+    while True:
+        yield from px.colors.qualitative.Plotly
+
+
 ############################################################
 
 urdf_path = f"{THIS_DIR}/../robot_resources/panda/urdf/panda.urdf"
@@ -73,48 +81,90 @@ q_target[1] = 0.25
 ####################################################
 
 
-def plot_all_trajectory_from_knot(
-    q_initial, q_target, knots, title="initial trajectory"
+def plot_all_trajectory_end_effector_from_knot(
+    q_initial, q_target, x, title="initial trajectory"
 ):
     fig = continuous_occupancy_map.visualise_model_pred(
         occmap, prob_threshold=0.8, marker_showscale=False, marker_colorscale="viridis"
     )
-    for i in range(knots.shape[0]):
-        _knots = knots[i, ...]
 
-        traj = create_spline_trajectory(
-            torch.cat((q_initial.unsqueeze(0), _knots, q_target.unsqueeze(0)), 0),
-            timesteps=100,
+    batch = x.shape[0]
+    knots = torch.cat(
+        (q_initial.repeat(batch, 1, 1), x, q_target.repeat(batch, 1, 1)), 1
+    )
+    traj = create_spline_trajectory(knots, timesteps=100)
+
+    _original_shape = traj.shape
+    traj = traj.reshape(-1, _original_shape[-1])
+
+    xs_all_joints = robot.qs_to_joints_xs(traj)
+
+    traj_of_end_effector = xs_all_joints[-1, ...]
+    traj_of_end_effector = traj_of_end_effector.reshape(
+        _original_shape[0], _original_shape[1], -1
+    )
+
+    color_gen = color_generator()
+    for i, color in zip(range(traj_of_end_effector.shape[0]), color_gen):
+        fig.add_traces(
+            robot_visualiser.plot_xs(
+                traj_of_end_effector[i, ...],
+                color=color,
+                showlegend=False,
+                mode="lines",
+                line_width=10,
+            )
         )
-        for qs in traj:
-            fig.add_traces(
-                robot_visualiser.plot_arms(
-                    qs.detach(),
-                    highlight_end_effector=False,
-                    showlegend=False,
-                    color="black",
-                )
+
+    # plot start/end
+    for qs, name, color in [
+        (q_initial, "q_initial", "red"),
+        (q_target, "q_target", "cyan"),
+    ]:
+        fig.add_traces(
+            robot_visualiser.plot_arms(
+                qs.detach(), highlight_end_effector=True, name=name, color=color,
             )
-        # plot _knots
-        for qs in _knots:
-            fig.add_traces(
-                robot_visualiser.plot_arms(
-                    qs.detach(),
-                    highlight_end_effector=False,
-                    name="knot",
-                    color="magenta",
-                )
+        )
+
+    fig.update_layout(title=title)
+    fig.show()
+
+
+def plot_trajectory_from_knot(q_initial, q_target, knots, title="initial trajectory"):
+    fig = continuous_occupancy_map.visualise_model_pred(
+        occmap, prob_threshold=0.8, marker_showscale=False, marker_colorscale="viridis"
+    )
+    traj = create_spline_trajectory(
+        torch.cat((q_initial.unsqueeze(0), knots, q_target.unsqueeze(0)), 0),
+        timesteps=200,
+    )
+    for qs in traj:
+        fig.add_traces(
+            robot_visualiser.plot_arms(
+                qs.detach(),
+                highlight_end_effector=False,
+                showlegend=False,
+                color="black",
             )
-        # plot start/end
-        for qs, name, color in [
-            (q_initial, "q_initial", "red"),
-            (q_target, "q_target", "cyan"),
-        ]:
-            fig.add_traces(
-                robot_visualiser.plot_arms(
-                    qs.detach(), highlight_end_effector=True, name=name, color=color,
-                )
+        )
+    # plot knots
+    for qs in knots:
+        fig.add_traces(
+            robot_visualiser.plot_arms(
+                qs.detach(), highlight_end_effector=False, name="knot", color="magenta",
             )
+        )
+    # plot start/end
+    for qs, name, color in [
+        (q_initial, "q_initial", "red"),
+        (q_target, "q_target", "cyan"),
+    ]:
+        fig.add_traces(
+            robot_visualiser.plot_arms(
+                qs.detach(), highlight_end_effector=True, name=name, color=color,
+            )
+        )
 
     fig.update_layout(title=title)
     fig.show()
@@ -124,33 +174,51 @@ def plot_all_trajectory_from_knot(
 # Defines cost functions and sets up the problem
 
 
-# Defines the cost function as a function of x which is a 3 x 2 differentiable vector
-# defining the intermediate knots of the spline
-def cost_function(x, start_pose, target_pose, timesteps=100):
-    knots = torch.cat((start_pose.unsqueeze(0), x, target_pose.unsqueeze(0)), 0)
-    out = create_spline_trajectory(knots, timesteps)
-    return occmap(robot.qs_to_joints_xs(out))
+# # Defines the cost function as a function of x which is a 3 x 2 differentiable vector
+# # defining the intermediate knots of the spline
+# def cost_function(x, start_pose, target_pose, timesteps=100):
+#     knots = torch.cat((start_pose.unsqueeze(0), x, target_pose.unsqueeze(0)), 0)
+#     out = create_spline_trajectory(knots, timesteps)
+#     return occmap(robot.qs_to_joints_xs(out))
 
 
-def batch_cost_function(x, start_pose, target_pose, timesteps=100, w=1.0):
+def batch_cost_function(
+    x, start_pose, target_pose, timesteps=100, w_collision=5.0, w_trajdist=1.0,
+):
     batch = x.shape[0]
     knots = torch.cat(
         (start_pose.repeat(batch, 1, 1), x, target_pose.repeat(batch, 1, 1)), 1
     )
     traj = create_spline_trajectory(knots, timesteps)
+
     _original_shape = traj.shape
     traj = traj.reshape(-1, _original_shape[-1])
 
-    out = robot.qs_to_joints_xs(traj)
-    # out = out.reshape(
-    #     out.shape[0],
-    #     _original_shape[0],
-    #     _original_shape[1],
-    #     out.shape[-1],
-    # )
-    cost = occmap(out)
+    xs_all_joints = robot.qs_to_joints_xs(traj)
 
-    return cost, traj
+    traj_of_end_effector = xs_all_joints[-1, ...]
+    traj_of_end_effector = traj_of_end_effector.reshape(
+        _original_shape[0], _original_shape[1], -1
+    )
+
+    # this collision prob is in the shape of [ndof x (batch x timesteps) x 1]
+    collision_prob = occmap(xs_all_joints)
+    # the following is now in the shape of [batch x timesteps]
+    collision_prob = (
+        collision_prob.sum(0).reshape(_original_shape[0], _original_shape[1]).squeeze()
+    )
+    # we can then sums up the collision prob across timesteps
+    collision_prob = collision_prob.sum(1)
+
+    # compute piece-wise linear distance
+    traj_dist = torch.linalg.norm(
+        traj_of_end_effector[:, 1:, :] - traj_of_end_effector[:, :-1, :], dim=2
+    ).sum(1)
+
+    # the following should now be in 1d shape of [batch]
+    cost = w_collision * collision_prob + w_trajdist * traj_dist
+
+    return cost, traj_of_end_effector
 
 
 ####################################################
@@ -161,7 +229,7 @@ x = (
     + limit_lowers
 )
 
-plot_all_trajectory_from_knot(
+plot_all_trajectory_end_effector_from_knot(
     q_initial, q_target, x, title="initial trajectory",
 )
 
@@ -199,6 +267,6 @@ data_dict_2, _ = stein_sampler.optimize(
 
 x = x.detach()
 
-plot_all_trajectory_from_knot(
+plot_all_trajectory_end_effector_from_knot(
     q_initial, q_target, x, title="final optimised trajectory",
 )
