@@ -107,6 +107,7 @@ class SVGD:
         opt_state: dict = None,
         n_steps: int = 100,
         debug: bool = False,
+        callback_func = None,
         **kernel_args,
     ) -> tuple:
         X = particles.detach()
@@ -131,6 +132,8 @@ class SVGD:
             X_seq = torch.cat([X_seq, X.detach().unsqueeze(0)], dim=0)
             if debug:
                 iterator.set_postfix(loss=X.grad.detach().norm(), refresh=False)
+            if callback_func is not None:
+                callback_func(X)
         data_dict["trace"] = X_seq
         return data_dict, optimizer.state_dict()
 

@@ -25,6 +25,10 @@ class ContinuousOccupancyMap(nn.Module):
 
         self.layers = nn.Sequential(*layers)
 
+    def to(self, device):
+        super().to(device)
+        self.device = device
+
     def forward(self, *args):
         return self.layers(*args)
 
@@ -151,39 +155,40 @@ def visualise_model_pred(
     marker_showscale=True,
     marker_colorscale=None,
 ):
-    x_ = np.linspace(min_x, max_x, num=num_steps)
-    y_ = np.linspace(min_y, max_y, num=num_steps)
-    z_ = np.linspace(min_z, max_z, num=int(num_steps))
-    x, y, z = np.meshgrid(x_, y_, z_, indexing="ij")
-    coords = np.c_[x.ravel(), y.ravel(), z.ravel()]
+    with torch.no_grad():
+        x_ = np.linspace(min_x, max_x, num=num_steps)
+        y_ = np.linspace(min_y, max_y, num=num_steps)
+        z_ = np.linspace(min_z, max_z, num=int(num_steps))
+        x, y, z = np.meshgrid(x_, y_, z_, indexing="ij")
+        coords = np.c_[x.ravel(), y.ravel(), z.ravel()]
 
-    query_pt = torch.Tensor(coords)
-    if with_random_gaussian_noise is not None:
-        query_pt = query_pt + torch.randn(coords.shape) * float(
-            with_random_gaussian_noise
-        )
-
-    query_pt_pred = model(query_pt)
-
-    import plotly.graph_objects as go
-
-    prob = query_pt_pred[:, 0].detach().cpu()
-
-    _criteria = prob > prob_threshold
-    _query_pt = query_pt[_criteria]
-
-    fig = go.Figure(
-        data=[
-            go.Scatter3d(
-                x=_query_pt[:, 0],
-                y=_query_pt[:, 1],
-                z=_query_pt[:, 2],
-                marker_color=prob[_criteria],
-                marker_showscale=marker_showscale,
-                name="prob-map",
-                mode="markers",
-                marker_colorscale=marker_colorscale,
+        query_pt = torch.Tensor(coords)
+        if with_random_gaussian_noise is not None:
+            query_pt = query_pt + torch.randn(coords.shape) * float(
+                with_random_gaussian_noise
             )
-        ]
-    )
+
+        query_pt_pred = model(query_pt.to(model.device))
+
+        import plotly.graph_objects as go
+
+        prob = query_pt_pred[:, 0].detach().cpu()
+
+        _criteria = prob > prob_threshold
+        _query_pt = query_pt[_criteria]
+
+        fig = go.Figure(
+            data=[
+                go.Scatter3d(
+                    x=_query_pt[:, 0],
+                    y=_query_pt[:, 1],
+                    z=_query_pt[:, 2],
+                    marker_color=prob[_criteria],
+                    marker_showscale=marker_showscale,
+                    name="prob-map",
+                    mode="markers",
+                    marker_colorscale=marker_colorscale,
+                )
+            ]
+        )
     return fig

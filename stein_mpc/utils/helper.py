@@ -29,6 +29,16 @@ def plot_particles(model, data, save_path):
     print("Done!")
 
 
+def get_default_progress_folder_path(folder_name: Path = None,):
+    if folder_name is None:
+        folder_name = time.strftime("%Y%m%d-%H%M%S")
+    root_path = get_project_root()
+    folder_path = Path(root_path, "data/local/" + str(folder_name))
+    if not folder_path.exists():
+        folder_path.mkdir(parents=True)
+    return folder_path
+
+
 def save_progress(
     folder_name: Path = None,
     session=False,
@@ -49,12 +59,7 @@ def save_progress(
     :param fig: A figure object.
     :type fig: matplotlib.figure.Figure
     """
-    if folder_name is None:
-        folder_name = time.strftime("%Y%m%d-%H%M%S")
-    root_path = get_project_root()
-    folder_path = Path(root_path, "data/local/" + str(folder_name))
-    if not folder_path.exists():
-        folder_path.mkdir(parents=True)
+    folder_path = get_default_progress_folder_path(folder_name)
     if fig:
         plot_path = folder_path / "plots"
         if not plot_path.exists():

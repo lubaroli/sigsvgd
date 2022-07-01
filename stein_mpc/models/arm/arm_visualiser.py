@@ -32,10 +32,10 @@ class RobotVisualiser:
         highlight_end_effector: bool = False,
         color="green",
         name="Arm links & Joints",
-            mode="lines+markers",
+        mode="lines+markers",
         showlegend=True,
     ) -> List[BaseTraceType]:
-        joints_xs = self.robot.qs_to_joints_xs(qs).numpy().swapaxes(0, 1)
+        joints_xs = self.robot.qs_to_joints_xs(qs).cpu().numpy().swapaxes(0, 1)
 
         # create an array that denote the end of sequence
         assert len(joints_xs.shape) == 3
