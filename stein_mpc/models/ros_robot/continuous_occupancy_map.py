@@ -8,7 +8,7 @@ from torch import optim, nn, utils
 
 
 class ContinuousOccupancyMap(nn.Module):
-    def __init__(self, hidden_size=200, n_hidden_layers=5, n_dimension=3):
+    def __init__(self, hidden_size=200, n_hidden_layers=5, n_dimension=3, device="cpu"):
         super().__init__()
 
         layers = []
@@ -24,6 +24,7 @@ class ContinuousOccupancyMap(nn.Module):
                 layers.append(nn.ReLU())
 
         self.layers = nn.Sequential(*layers)
+        self.device = device
 
     def to(self, device):
         super().to(device)

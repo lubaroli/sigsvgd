@@ -318,11 +318,14 @@ def score_estimator(x):
 
 
 INDEX = 0
+PLOT_EVERY = 50
 
 
 def callback_to_plot(x):
     global INDEX
     INDEX += 1
+    if INDEX % PLOT_EVERY != 0:
+        return
     save_all_trajectory_end_effector_from_knot(
         output_path_name / f"{INDEX:03d}.png",
         q_initial,
