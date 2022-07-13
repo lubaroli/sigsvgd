@@ -38,9 +38,8 @@ class gaussian_kernel(object):
         diff = x[:, None, :] - x[None, :, :]
         Qdiff = torch.matmul(diff, self.Q)
         if self.adaptive:
-            h = torch.mean(
-                torch.sum(diff * Qdiff, axis=-1)
-            )  # faster calculation, for small number of particles should use median distant
+            # faster calculation, for small number of particles should use median
+            h = torch.mean(torch.sum(diff * Qdiff, axis=-1))
             # h = np.median(np.sum(diff * Qdiff, axis = -1))
             if self.decay:
                 h /= 10.0

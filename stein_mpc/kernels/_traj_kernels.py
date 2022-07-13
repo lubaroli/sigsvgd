@@ -20,11 +20,11 @@ class TrajectoryKernel(BaseKernel):
         where `\phi(\cdot)` is a differentiable mapping from control actions to
         trajectory space.
 
-        Args:
-            bandwidth_fn (scalar_function, optional): A function that receives the
-                pairwise squared distances and computes a scalar kernel bandwidth.
-                If None, the median heuristic is used. Defaults to None.
-        """
+        # Args:
+        #     bandwidth_fn (scalar_function, optional): A function that receives the
+        #         pairwise squared distances and computes a scalar kernel bandwidth.
+        #         If None, the median heuristic is used. Defaults to None.
+        # """
         super().__init__(bandwidth_fn, analytic_grad=False, **kwargs)
 
     def __call__(
@@ -69,7 +69,12 @@ class TrajectoryKernel(BaseKernel):
 
 
 class PathSigKernel(BaseKernel):
-    def __init__(self, bandwidth_fn: scalar_function = None, **kwargs):
+    def __init__(
+        self,
+        bandwidth_fn: scalar_function = None,
+        kernel_type: str = "linear",
+        **kwargs,
+    ):
         r"""Computes the gram matrix based on the RBF (squared exponential) kernel
         between Path Signatures inputs `X` and `Y`:
 
@@ -84,6 +89,8 @@ class PathSigKernel(BaseKernel):
                 If None, the median heuristic is used. Defaults to None.
         """
         super().__init__(bandwidth_fn, analytic_grad=False, **kwargs)
+        assert kernel_type.lower() == "linear" or kernel_type.lower() == "gaussian"
+        self.kernel_type = kernel_type
 
     def __call__(
         self,
@@ -114,14 +121,18 @@ class PathSigKernel(BaseKernel):
 
         X_sig = signatory.signature(X, depth, basepoint=True)
         Y_sig = signatory.signature(Y, depth, basepoint=True)
-        sq_dists = pw_dist_sq(X_sig, Y_sig)
-        if h is None:
-            h = self.get_bandwidth(sq_dists)
-        else:
-            h = float(h)
+        if self.kernel_type == "gaussian":
+            xty = torch.matmul(X_sig, Y_sig.T)
+            if h is None:
+                h = self.get_bandwidth(xty)
+            else:
+                h = float(h)
 
-        gamma = -0.5 / h ** 2
-        K = (gamma * sq_dists).exp()
+            gamma = -0.5 / h ** 2
+            K = (gamma * xty).exp()
+        else:
+            K = torch.matmul(X_sig, Y_sig.T)
+            K = K / K.max()
         if compute_grad:
             d_K = torch.autograd.grad(K.sum(), ref_vector, retain_graph=True)[0]
             return K, d_K
