@@ -107,7 +107,7 @@ class SVGD:
         opt_state: dict = None,
         n_steps: int = 100,
         debug: bool = False,
-        callback_func = None,
+        callback_func=None,
         **kernel_args,
     ) -> tuple:
         X = particles.detach()
@@ -184,7 +184,7 @@ class ScaledSVGD(SVGD):
                 "Optimizer must be a instance of `torch.LBFGS` to use approximated "
                 "LBFGS Hessian.",
             )
-            pass
+            raise NotImplementedError
         elif self.metric.lower() == "fischer":
             raise NotImplementedError
         elif self.metric.lower() == "hessian":
