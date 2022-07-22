@@ -99,7 +99,7 @@ class GaussianKernel(BaseKernel):
             `K` is [batch, batch] and the shape of `d_K` is [batch, batch, dim].
         """
         assert X.shape == Y.shape, "X and Y must have the same dimensions."
-
+        X, Y = torch.atleast_2d((X, Y))
         sq_dists = pw_dist_sq(X, Y)
         if h is None:
             h = self.get_bandwidth(sq_dists)

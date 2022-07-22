@@ -134,8 +134,8 @@ def scaled_pw_dist_sq(
         distances between elements. Otherwise, returns a tuple of squared_distances
         and the `mat1 @ metric` matrix multiplication.
     """
-    # Use brodcasting to compute the cross-difference
-    diff = mat1.unsqueeze(0) - mat2.unsqueeze(1)
+    # Use broadcasting to compute the cross-difference
+    diff = mat1[:, None, :] - mat2[None, :, :]
     diff_M = diff @ metric
     res = (diff_M * diff).sum(axis=-1)
     if return_gradient:
