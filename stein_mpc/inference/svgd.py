@@ -34,12 +34,12 @@ class SVGD:
     def _compute_kernel(self, X: torch.Tensor, **kernel_args):
         if hasattr(self.kernel, "analytic_grad") and self.kernel.analytic_grad:
             # grad_k is batch x batch x dim
-            k_xx, grad_k = self.kernel(X.flatten(1), X.flatten(1))
+            k_xx, grad_k = self.kernel(X, X)
             grad_k = grad_k.sum(1)  # aggregates gradient wrt to first input
         else:
             X = X.detach().requires_grad_(True)
-            k_xx = self.kernel(X.flatten(1), X.detach().flatten(1), compute_grad=False)
-            grad_k = autograd.grad(-k_xx.sum(), X)[0]
+            k_xx = self.kernel(X, X.detach(), compute_grad=False)
+            grad_k = autograd.grad(k_xx.sum(), X)[0]
         return k_xx.detach(), grad_k.detach()
 
     def _velocity(
@@ -53,7 +53,7 @@ class SVGD:
         if "k_xx" in kernel_args and "grad_k" in kernel_args:
             k_xx, grad_k = kernel_args["k_xx"], kernel_args["grad_k"].flatten(1)
         else:
-            k_xx, grad_k = self._compute_kernel(X, **kernel_args)
+            k_xx, grad_k = self._compute_kernel(X.flatten(1), **kernel_args)
 
         if grad_log_p is None:
             X = X.detach().requires_grad_(True)
@@ -200,7 +200,7 @@ class ScaledSVGD(SVGD):
         else:
             X = X.detach().requires_grad_(True)
             k_xx = self.kernel(X, X.detach(), M=M, compute_grad=False)
-            grad_k = autograd.grad(-k_xx.sum(), X)[0]
+            grad_k = autograd.grad(k_xx.sum(), X)[0]
             X.detach_()
             k_xx.detach_()
 
