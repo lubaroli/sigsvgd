@@ -19,6 +19,7 @@ class SVGD:
         log_prior: Callable = None,
         bw_scale: float = 1.0,
         optimizer_class: optim.Optimizer = optim.Adam,
+        adaptive_gradient: bool = False,
         **opt_args,
     ):
         if kernel is None:
@@ -30,6 +31,8 @@ class SVGD:
         self.bw_scale = bw_scale
         self.optimizer_class = optimizer_class
         self.opt_args = opt_args
+        self.opt_adagrad = adaptive_gradient
+        self.opt_inertia = 0
 
     def _compute_kernel(self, X: torch.Tensor, **kernel_args):
         if hasattr(self.kernel, "analytic_grad") and self.kernel.analytic_grad:
@@ -63,7 +66,10 @@ class SVGD:
             loss = -log_lik.detach()
         else:
             score_func = grad_log_p.flatten(1)
-            loss = grad_log_p.norm()
+            if "loss" in kernel_args:
+                loss = kernel_args["loss"].sum()
+            else:
+                loss = grad_log_p.norm()
 
         if self.log_prior is not None:
             X = X.detach().requires_grad_(True)
@@ -91,14 +97,20 @@ class SVGD:
         def closure():
             optimizer.zero_grad()
             X.grad, iter_dict = self._velocity(X, grad_log_p, **kernel_args)
+            iter_dict["grad"] = X.grad
             return iter_dict
 
         if isinstance(optimizer, torch.optim.Optimizer):
             iter_dict = optimizer.step(closure)
-        else:  # manually compute SGD
+        else:
             grad, iter_dict = self._velocity(X, grad_log_p, **kernel_args)
-            X = X + self.opt_args["lr"] * grad
-        return iter_dict
+            if self.opt_adagrad:  # compute simple Adagrad
+                # update sum of gradient's square
+                self.opt_inertia += grad ** 2
+                grad = grad / torch.sqrt(self.opt_inertia + 1e-12)
+            iter_dict["grad"] = grad
+            X = X - self.opt_args["lr"] * grad
+        return X, iter_dict
 
     def optimize(
         self,
@@ -112,9 +124,12 @@ class SVGD:
     ) -> tuple:
         X = particles.detach()
         # defined here to include x as parameter, since x could change between calls
-        optimizer = self.optimizer_class(params=[X], **self.opt_args)
-        if opt_state is not None:
-            optimizer.load_state_dict(opt_state)
+        if self.optimizer_class is not None:
+            optimizer = self.optimizer_class(params=[X], **self.opt_args)
+            if opt_state is not None:
+                optimizer.load_state_dict(opt_state)
+        else:
+            optimizer = None
         grad_log_p = None
         data_dict = {}
         if debug:
@@ -128,14 +143,15 @@ class SVGD:
                 X.requires_grad_(True)
                 grad_log_p, score_dict = score_estimator(X)
                 kernel_args.update(score_dict)
-            data_dict[i] = {**self.step(X, grad_log_p, optimizer, **kernel_args)}
+            X, data_dict[i] = self.step(X, grad_log_p, optimizer, **kernel_args)
             X_seq = torch.cat([X_seq, X.detach().unsqueeze(0)], dim=0)
             if debug:
-                iterator.set_postfix(loss=X.grad.detach().norm(), refresh=False)
+                iterator.set_postfix(loss=data_dict[i]["grad"].norm(), refresh=False)
             if callback_func is not None:
                 callback_func(X)
         data_dict["trace"] = X_seq
-        return data_dict, optimizer.state_dict()
+        opt_state = optimizer.state_dict() if optimizer is not None else None
+        return data_dict, opt_state
 
 
 class ScaledSVGD(SVGD):
