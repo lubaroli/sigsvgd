@@ -1,32 +1,27 @@
+import os
+import random
 import time
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from tqdm import trange
+
+
+def set_seed(seed=42):
+    random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
+def generate_seeds(n):
+    return [random.randint(0, 2 ** 32 - 1) for _ in range(n)]
 
 
 def get_project_root():
     return Path(__file__).parent.parent.parent
-
-
-def plot_particles(model, data, save_path):
-    print("Plotting rollouts...")
-    ro = data["rollouts"].detach()
-    traj = data["trajectory"].detach()
-    if ro.ndim == 5:  # i.e. multiple rollouts per policy
-        ro = ro.mean(dim=1, keepdims=True)  # average rollouts of each policy
-    else:
-        ro.unsqueeze(1)  # add rollouts dimension for plotting
-    for step in trange(ro.shape[0]):
-        model.render(
-            path=save_path / "plots/{0:03d}.png".format(step),
-            states=traj[:step, ..., :2],
-            rollouts=ro[step],
-        )
-        plt.close()
-    print("Done!")
 
 
 def get_default_progress_folder_path(folder_name: Path = None,):
@@ -98,18 +93,6 @@ def save_progress(
         with config_path.open("w") as fh:
             yaml.dump(params, fh)
     return folder_path
-
-
-def create_video_from_plots(save_path, plot_path=None):
-    try:
-        import moviepy.editor as mpy
-    except ImportError:
-        print("Couldn't import package MoviePy. Aborting video creation.")
-        return None
-    if plot_path is None:
-        plot_path = save_path / "plots"
-    video = mpy.ImageSequenceClip(str(plot_path), fps=20)
-    video.write_videofile(str(save_path / "video.mp4"))
 
 
 def to_np(x, dtype=np.float):

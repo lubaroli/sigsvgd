@@ -9,6 +9,7 @@ import seaborn as sns
 import torch
 import torch.distributions as dist
 import yaml
+from tqdm import trange
 
 
 def _label(data, color, label):
@@ -441,3 +442,33 @@ def plot_2d_particles(x_all, step, log_p, n_grid=100):
     plt.ylim([-10, 10])
     plt.plot(x_all[step][:, 0], x_all[step][:, 1], "ro", markersize=5)
     plt.show()
+
+
+def create_video_from_plots(save_path, plot_path=None):
+    try:
+        import moviepy.editor as mpy
+    except ImportError:
+        print("Couldn't import package MoviePy. Aborting video creation.")
+        return None
+    if plot_path is None:
+        plot_path = save_path / "plots"
+    video = mpy.ImageSequenceClip(str(plot_path), fps=20)
+    video.write_videofile(str(save_path / "video.mp4"))
+
+
+def plot_particles(model, data, save_path):
+    print("Plotting rollouts...")
+    ro = data["rollouts"].detach()
+    traj = data["trajectory"].detach()
+    if ro.ndim == 5:  # i.e. multiple rollouts per policy
+        ro = ro.mean(dim=1, keepdims=True)  # average rollouts of each policy
+    else:
+        ro.unsqueeze(1)  # add rollouts dimension for plotting
+    for step in trange(ro.shape[0]):
+        model.render(
+            path=save_path / "plots/{0:03d}.png".format(step),
+            states=traj[:step, ..., :2],
+            rollouts=ro[step],
+        )
+        plt.close()
+    print("Done!")
