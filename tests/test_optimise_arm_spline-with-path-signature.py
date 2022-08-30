@@ -59,14 +59,14 @@ from stein_mpc.models.ros_robot import continuous_occupancy_map
 occupancy_map_wegiht_fname = f"{THIS_DIR}/../robodata/001_continuous-occmap-weight.ckpt"
 
 try:
-    occmap = continuous_occupancy_map.load_trained_model(
-        occupancy_map_wegiht_fname
-    )
+    occmap = continuous_occupancy_map.load_trained_model(occupancy_map_wegiht_fname)
     occmap.to(device)
 except FileNotFoundError as e:
     print("\n")
-    print(f"ERROR: File not found at {occupancy_map_wegiht_fname}.\nHave you "
-          f"downloaded the weight file via running 'Make'?")
+    print(
+        f"ERROR: File not found at {occupancy_map_wegiht_fname}.\nHave you "
+        f"downloaded the weight file via running 'Make'?"
+    )
     print("\n")
     raise e
 
@@ -85,7 +85,7 @@ def create_spline_trajectory(knots, timesteps=100):
 
 
 def plot_all_trajectory_end_effector_from_knot(
-        q_initial, q_target, x, title="initial trajectory"
+    q_initial, q_target, x, title="initial trajectory"
 ):
     with torch.no_grad():
         # creates a figure that contains the occupancy map with occ > x%
@@ -200,7 +200,7 @@ data_output_path_name = get_default_progress_folder_path()
 
 
 def batch_cost_function(
-        x, start_pose, target_pose, timesteps=100, w_collision=5.0, w_trajdist=1.0,
+    x, start_pose, target_pose, timesteps=100, w_collision=5.0, w_trajdist=1.0,
 ):
     batch = x.shape[0]
     knots = torch.cat(
@@ -223,8 +223,8 @@ def batch_cost_function(
     # the following is now in the shape of [batch x timesteps]
     collision_prob = (
         collision_prob.sum(0)
-            .reshape(_original_shape[0], _original_shape[1])
-            .squeeze(-1)
+        .reshape(_original_shape[0], _original_shape[1])
+        .squeeze(-1)
     )
     # we can then sums up the collision prob across timesteps
     collision_prob = collision_prob.sum(1)
@@ -244,7 +244,6 @@ def batch_cost_function(
 
 
 class ScoreEstimator:
-
     def __init__(self, q_initial, q_target, kernel):
         self.q_initial = q_initial
         self.q_target = q_target
@@ -306,8 +305,8 @@ def run_optimisation():
 
     batch, length, channels = 6, 5, 9
     x = (
-            torch.rand(batch, length - 2, channels) * (limit_uppers - limit_lowers)
-            + limit_lowers
+        torch.rand(batch, length - 2, channels) * (limit_uppers - limit_lowers)
+        + limit_lowers
     ).to(device)
 
     n_iter = 400
@@ -336,7 +335,7 @@ def run_optimisation():
     )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     torch.manual_seed(1)
 
     run_optimisation()
