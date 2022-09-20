@@ -81,7 +81,7 @@ class ModelTrainer(pl.LightningModule):
         return loss
 
 
-def train(data_fname="obspts.csv"):
+def train(data_fname="obspts.csv", save_path=None):
     with open(data_fname) as f:
         data = np.array([list(map(float, l)) for l in csv.reader(f)])
 
@@ -120,6 +120,8 @@ def train(data_fname="obspts.csv"):
     )
     valid_set = utils.data.DataLoader(valid_set, batch_size=batch_size, num_workers=12,)
     trainer.fit(model, train_set, valid_set)
+    if save_path is not None:
+        trainer.save_checkpoint(save_path)
     return model
 
 

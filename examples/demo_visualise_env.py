@@ -7,7 +7,14 @@ import torch
 
 THIS_DIR = os.path.dirname(os.path.realpath(__file__))
 
-with open(f"{THIS_DIR}/../robodata/001_dataset.csv") as f:
+
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument("tagname", nargs='?', default='001')
+args = parser.parse_args()
+
+
+with open(f"{THIS_DIR}/../robodata/{args.tagname}_dataset.csv") as f:
     data = np.array([list(map(float, l)) for l in csv.reader(f)])
 
 dataset = torch.Tensor(data)
@@ -38,9 +45,9 @@ fig.show()
 from stein_mpc.models.ros_robot import continuous_occupancy_map
 
 net = continuous_occupancy_map.load_trained_model(
-    f"{THIS_DIR}/../robodata/001_continuous-occmap-weight.ckpt"
+    f"{THIS_DIR}/../robodata/{args.tagname}_continuous-occmap-weight.ckpt"
 )
 
-fig = continuous_occupancy_map.visualise_model_pred(net, prob_threshold=0.8)
+fig = continuous_occupancy_map.visualise_model_pred(net, prob_threshold=0.95)
 
 fig.show()
