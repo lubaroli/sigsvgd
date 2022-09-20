@@ -1,19 +1,64 @@
-import os
+from torchcubicspline import NaturalCubicSpline, natural_cubic_spline_coeffs
+import time
+from pathlib import Path
 
 import numpy
+import sigkernel
 import torch
-
 from stein_mpc.inference import SVGD
-from stein_mpc.kernels import PathSigKernel
-from stein_mpc.models.arm import arm_simulator
-from stein_mpc.models.arm import arm_visualiser
-from stein_mpc.utils.helper import get_default_progress_folder_path
+from stein_mpc.models.arm import arm_simulator, arm_visualiser
+from stein_mpc.models.ros_robot import continuous_occupancy_map
+from stein_mpc.utils.helper import generate_seeds, get_project_root, set_seed
+from torch.autograd import grad as ag
 
-THIS_DIR = os.path.dirname(os.path.realpath(__file__))
 
-urdf_path = f"{THIS_DIR}/../robot_resources/panda/urdf/panda.urdf"
+class SignatureKernel:
+    def __init__(self, lengthscale=0.5, depth=3):
+        static_kernel = sigkernel.RBFKernel(sigma=lengthscale)
+        self.kernel = sigkernel.SigKernel(static_kernel, dyadic_order=depth)
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+    def __call__(self, X, Y):
+        ctx = {"device": X.device, "dtype": X.dtype}
+        k_xx = self.kernel.compute_Gram(X.double(), Y.double())
+        return k_xx.to(**ctx)
+
+
+class ScoreEstimator:
+    def __init__(self, q_initial, q_target, kernel):
+        self.q_initial = q_initial
+        self.q_target = q_target
+        self.kernel = kernel
+
+    # need score estimator to include trajectory length regularization cost
+    def sgd_score_estimator(self, x):
+        cost, _ = batch_cost_function(x, self.q_initial, self.q_target)
+        # considering the likelihood is exp(-cost)
+        grad_log_p = ag(-cost.sum(), x, retain_graph=True)[0]
+        k_xx = torch.eye(x.shape[0], device=device)
+        grad_k = torch.zeros_like(grad_log_p, device=device)
+        score_dict = {"k_xx": k_xx, "grad_k": grad_k}
+        return grad_log_p, score_dict
+
+    def score_estimator(self, x):
+        cost, traj = batch_cost_function(self, x)
+        # considering the likelihood is exp(-cost)
+        grad_log_p = ag(-cost.sum(), x, retain_graph=True)[0]
+        k_xx, grad_k = self.kernel(traj, traj)
+        score_dict = {"k_xx": k_xx, "grad_k": grad_k}
+        return grad_log_p, score_dict
+
+    def autograd_score_estimator(self, x):
+        cost, traj = batch_cost_function(x, self.q_initial, self.q_target)
+        # considering the likelihood is exp(-cost)
+        grad_log_p = ag(-cost.sum(), x, retain_graph=True)[0].flatten(1)
+        k_xx = self.kernel(traj, traj)
+        grad_k = ag(k_xx.sum(), x)[0]
+        score_dict = {
+            "k_xx": k_xx.detach(),
+            "grad_k": grad_k.detach(),
+            "loss": cost,
+        }
+        return grad_log_p, score_dict
 
 
 def color_generator():
@@ -21,59 +66,6 @@ def color_generator():
 
     while True:
         yield from px.colors.qualitative.Plotly
-
-
-############################################################
-
-# the link to operates
-target_link_names = [
-    # "panda_link0",
-    "panda_link1",
-    "panda_link2",
-    "panda_link3",
-    "panda_link4",
-    "panda_link5",
-    "panda_link6",
-    "panda_link7",
-    "panda_link8",
-    "panda_hand",
-]
-
-# constructing the robot arm as a simulator
-robot = arm_simulator.Robot(
-    urdf_path=urdf_path,
-    target_link_names=target_link_names,
-    end_effector_link_name="panda_hand",
-    device=device,
-)
-# robot.print_info()
-
-# construct a visualiser for the robot for plotting.
-robot_visualiser = arm_visualiser.RobotVisualiser(robot)
-
-############################################################
-# load NN model and display prob
-
-from stein_mpc.models.ros_robot import continuous_occupancy_map
-
-occupancy_map_wegiht_fname = f"{THIS_DIR}/../robodata/001_continuous-occmap-weight.ckpt"
-
-try:
-    occmap = continuous_occupancy_map.load_trained_model(occupancy_map_wegiht_fname)
-    occmap.to(device)
-except FileNotFoundError as e:
-    print("\n")
-    print(
-        f"ERROR: File not found at {occupancy_map_wegiht_fname}.\nHave you "
-        f"downloaded the weight file via running 'Make'?"
-    )
-    print("\n")
-    raise e
-
-############################################################
-
-# defining function to construct splines
-from torchcubicspline import natural_cubic_spline_coeffs, NaturalCubicSpline
 
 
 def create_spline_trajectory(knots, timesteps=100):
@@ -186,19 +178,6 @@ def save_all_trajectory_end_effector_from_knot(output_fname, *args, **kwargs):
     fig.write_image(output_fname)
 
 
-####################################################
-# Defines cost functions and sets up the problem
-data_output_path_name = get_default_progress_folder_path()
-
-
-# # Defines the cost function as a function of x which is a 3 x 2 differentiable vector
-# # defining the intermediate knots of the spline
-# def cost_function(x, start_pose, target_pose, timesteps=100):
-#     knots = torch.cat((start_pose.unsqueeze(0), x, target_pose.unsqueeze(0)), 0)
-#     out = create_spline_trajectory(knots, timesteps)
-#     return occmap(robot.qs_to_joints_xs(out))
-
-
 def batch_cost_function(
     x, start_pose, target_pose, timesteps=100, w_collision=5.0, w_trajdist=1.0,
 ):
@@ -240,39 +219,7 @@ def batch_cost_function(
     return cost, traj_of_end_effector
 
 
-####################################################
-
-
-class ScoreEstimator:
-    def __init__(self, q_initial, q_target, kernel):
-        self.q_initial = q_initial
-        self.q_target = q_target
-        self.kernel = kernel
-
-    # need score estimator to include trajectory length regularization cost
-    def sgd_score_estimator(self, x):
-        cost, _ = batch_cost_function(x, self.q_initial, self.q_target)
-        # considering the likelihood is exp(-cost)
-        grad_log_p = torch.autograd.grad(-cost.sum(), x, retain_graph=True)[0]
-        k_xx = torch.eye(x.shape[0], device=device)
-        grad_k = torch.zeros_like(grad_log_p, device=device)
-        score_dict = {"k_xx": k_xx, "grad_k": grad_k}
-        return grad_log_p, score_dict
-
-    def score_estimator(self, x):
-        cost, traj = batch_cost_function(self, x)
-        # considering the likelihood is exp(-cost)
-        grad_log_p = torch.autograd.grad(-cost.sum(), x, retain_graph=True)[0]
-        k_xx, grad_k = self.kernel(traj, traj, x, depth=2)
-        score_dict = {"k_xx": k_xx, "grad_k": grad_k}
-        return grad_log_p, score_dict
-
-
-INDEX = 0
-PLOT_EVERY = 50
-
-
-def callback_to_plot(x, q_initial, q_target):
+def plot_callback(x, q_initial, q_target):
     """
     A callback function that is called in each iteration by the optimiser.
     We will keep track of the iteration number and plot every X iter
@@ -280,16 +227,12 @@ def callback_to_plot(x, q_initial, q_target):
     global INDEX
     if INDEX % PLOT_EVERY == 0:
         save_all_trajectory_end_effector_from_knot(
-            data_output_path_name / f"{INDEX:03d}.png",
-            q_initial,
-            q_target,
-            x.detach(),
-            title=None,
+            plot_path / f"{INDEX:03d}.png", q_initial, q_target, x.detach(), title=None,
         )
     INDEX += 1
 
 
-def run_optimisation():
+def run_optimisation(method="pathsig"):
     limit_lowers, limit_uppers = robot.get_joints_limits()
 
     # defining our initial and target joints configurations
@@ -309,33 +252,99 @@ def run_optimisation():
         + limit_lowers
     ).to(device)
 
-    n_iter = 400
-    kernel = PathSigKernel()
-    stein_sampler = SVGD(kernel, optimizer_class=torch.optim.Adam, lr=0.08)
+    kernel = SignatureKernel(lengthscale=(length + channels) ** 0.5)
+    estimator = ScoreEstimator(q_initial, q_target, kernel)
+    stein_sampler = SVGD(kernel, optimizer_class=torch.optim.Adam, lr=0.2)
 
     save_all_trajectory_end_effector_from_knot(
-        data_output_path_name / f"initial.png", q_initial, q_target, x, title=None,
+        experiment_path / "initial.png", q_initial, q_target, x, title=None,
     )
 
-    estimator = ScoreEstimator(q_initial, q_target, kernel)
-
-    data_dict_1, _ = stein_sampler.optimize(
-        x,
-        estimator.sgd_score_estimator,
-        n_steps=n_iter // 2,
-        debug=True,
-        callback_func=lambda _x: callback_to_plot(_x, q_initial, q_target),
-    )
-    data_dict_2, _ = stein_sampler.optimize(
-        x,
-        estimator.score_estimator,
-        n_steps=(n_iter - n_iter // 2),
-        debug=True,
-        callback_func=lambda _x: callback_to_plot(_x, q_initial, q_target),
-    )
+    if method == "pathsig":
+        wu_data_dict, _ = stein_sampler.optimize(
+            x,
+            estimator.autograd_score_estimator,
+            n_steps=n_iter - n_iter // 4,
+            debug=True,
+            callback_func=lambda _x: plot_callback(_x, q_initial, q_target),
+        )
+        data_dict, _ = stein_sampler.optimize(
+            x,
+            estimator.sgd_score_estimator,
+            n_steps=n_iter // 4,
+            debug=True,
+            callback_func=lambda _x: plot_callback(_x, q_initial, q_target),
+        )
+        torch.save([wu_data_dict, data_dict], f=experiment_path / "data.pt")
+    elif method == "sgd":
+        data_dict, _ = stein_sampler.optimize(
+            x,
+            estimator.sgd_score_estimator,
+            n_steps=n_iter,
+            debug=True,
+            callback_func=lambda _x: plot_callback(_x, q_initial, q_target),
+        )
+        torch.save(data_dict, f=experiment_path / "data.pt")
 
 
 if __name__ == "__main__":
-    torch.manual_seed(1)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    run_optimisation()
+    project_path = get_project_root()
+    urdf_path = project_path.joinpath("robot_resources/panda/urdf/panda.urdf")
+    occmap_fname = project_path.joinpath("robodata/001_continuous-occmap-weight.ckpt")
+    try:
+        occmap = continuous_occupancy_map.load_trained_model(occmap_fname)
+        occmap.to(device)
+    except FileNotFoundError as e:
+        print(
+            f"\nERROR: File not found at {occmap_fname}."
+            f"\nHave you downloaded the weight file via running 'Make'?\n"
+        )
+        raise e
+
+    # choose links to operate
+    target_link_names = [
+        # "panda_link0",
+        "panda_link1",
+        "panda_link2",
+        "panda_link3",
+        "panda_link4",
+        "panda_link5",
+        "panda_link6",
+        "panda_link7",
+        "panda_link8",
+        "panda_hand",
+    ]
+
+    # construct the robot arm as a simulator
+    robot = arm_simulator.Robot(
+        urdf_path=str(urdf_path),
+        target_link_names=target_link_names,
+        end_effector_link_name="panda_hand",
+        device=device,
+    )
+
+    # construct a visualiser for the robot for plotting
+    robot_visualiser = arm_visualiser.RobotVisualiser(robot)
+
+    # ========== Experiment Setup ==========
+    print("\n=== Start of robot arm experiment ===")
+    episodes = 5
+    n_iter = 500
+    ymd_time = time.strftime("%Y%m%d-%H%M%S")
+    seeds = generate_seeds(episodes)
+    PLOT_EVERY = 499
+
+    methods = ["sgd", "pathsig"]
+    for ep_num, seed in enumerate(seeds):
+        for method in methods:
+            set_seed(seed)
+            print(f"Episode {ep_num + 1} with seed {seed}")
+            print(f"running {method}")
+            INDEX = 0
+            experiment_path = Path(f"data/local/robot-{ymd_time}/{seed}/{method}")
+            plot_path = experiment_path / "plots"
+            if not plot_path.exists():
+                plot_path.mkdir(parents=True)
+            run_optimisation(method)

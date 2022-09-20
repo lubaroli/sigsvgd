@@ -1,8 +1,8 @@
 ---
 sim_params:
-  warm_up: 20
-  steps: 400
-  episodes: 1
+  warm_up: 0
+  steps: 300
+  episodes: 20
 
 exp_params:
   horizon: 30
@@ -10,13 +10,14 @@ exp_params:
   action_samples: 10
   params_samples: 0
   alpha: 1
-  learning_rate: 1
+  learning_rate: 1.0
   ctrl_sigma: 5
   ctrl_dim: 2
-  opt_steps: 5
+  opt_steps: 2
   stein_sampler: SVGD
   likelihood: ExponentiatedUtility
   kernel: signature
+  dyadic_order: 3
   use_mpf: false
   prior_sigma: 1
   weighted_prior: false

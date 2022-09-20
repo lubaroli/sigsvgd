@@ -279,8 +279,8 @@ def compile_results(seeds, obstacles, ps_res, sgd_res):
     ps_costs = torch.tensor([])
     sgd_costs = torch.tensor([])
 
-    for i, s in enumerate(seeds):
-        for j, n in enumerate(obstacles):
+    for s in seeds:
+        for n in obstacles:
             last_key = list(ps_res[s][n].keys())[-2]
             ep_cost = ps_res[s][n][last_key]["loss"].cpu()
             ps_costs = torch.cat([ps_costs, ep_cost[None, :]])
@@ -359,4 +359,4 @@ if __name__ == "__main__":
             ps_results[seed][n_obst], sgd_results[seed][n_obst] = res
 
     results = compile_results(seeds, obstacles, ps_results, sgd_results)
-    torch.save(results, "tests/results/pp_results.pt")
+    torch.save(results, path.parent.joinpath("pp_results.pt"))
