@@ -162,11 +162,12 @@ class ScaledGaussianKernel(BaseKernel):
             `K` is [batch, batch] and the shape of `d_K` is [batch, batch, dim].
         """
         assert X.shape == Y.shape, "X and Y must have the same dimensions."
+        ctx = {"device": X.device, "dtype": X.dtype}
         if M is None:
-            M = torch.eye(X.shape[-1])
+            M = torch.eye(X.shape[-1], **ctx)
         else:
             assert M.shape == M.T.shape, "M must be a square matrix."
-            M = 0.5 * (M + M.T)  # PSD stabilization
+            M = (0.5 * (M + M.T)).to(**ctx)  # PSD stabilization
 
         sq_dists, sq_dists_grad = scaled_pw_dist_sq(X, Y, M, return_gradient=True)
         if h is None:
@@ -268,12 +269,13 @@ class ScaledIMQKernel(BaseKernel):
         **kwargs,
     ):
         assert X.shape == Y.shape, "X and Y must have the same dimensions."
-
+        ctx = {"device": X.device, "dtype": X.dtype}
         if M is None:
-            M = torch.eye(X.shape[-1])
+            M = torch.eye(X.shape[-1], **ctx)
         else:
             assert M.shape == M.T.shape, "M must be a square matrix."
             assert M.shape[-1] == X.shape[-1], "Matrix M must match last dim of inputs."
+            M.to(**ctx)
 
         sq_dists, sq_dists_grad = scaled_pw_dist_sq(X, Y, M, return_gradient=True)
         if h is None:
