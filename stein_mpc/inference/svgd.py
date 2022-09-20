@@ -34,7 +34,7 @@ class SVGD:
         self.opt_adagrad = adaptive_gradient
         self.opt_inertia = 0
 
-    def _compute_kernel(self, X: torch.Tensor, **kernel_args):
+    def _compute_kernel(self, X: torch.Tensor, **kwargs):
         if hasattr(self.kernel, "analytic_grad") and self.kernel.analytic_grad:
             # grad_k is batch x batch x dim
             k_xx, grad_k = self.kernel(X, X)
@@ -46,17 +46,17 @@ class SVGD:
         return k_xx.detach(), grad_k.detach()
 
     def _velocity(
-        self, X: torch.Tensor, grad_log_p: torch.Tensor, **kernel_args
+        self, X: torch.Tensor, grad_log_p: torch.Tensor, **kwargs
     ) -> Tuple[torch.Tensor, dict]:
         if self.log_p is None and grad_log_p is None:
             raise ValueError(
-                "SVGD needs a function to evaluate the log probability of the target",
-                "distribution or an estimate of the gradient for every particle.",
+                """SVGD needs a function to evaluate the log probability of the target
+                distribution or an estimate of the gradient for every particle.""",
             )
-        if "k_xx" in kernel_args and "grad_k" in kernel_args:
-            k_xx, grad_k = kernel_args["k_xx"], kernel_args["grad_k"].flatten(1)
+        if "k_xx" in kwargs and "grad_k" in kwargs:
+            k_xx, grad_k = kwargs["k_xx"], kwargs["grad_k"].flatten(1)
         else:
-            k_xx, grad_k = self._compute_kernel(X.flatten(1), **kernel_args)
+            k_xx, grad_k = self._compute_kernel(X.flatten(1), **kwargs)
 
         if grad_log_p is None:
             X = X.detach().requires_grad_(True)
@@ -66,8 +66,8 @@ class SVGD:
             loss = -log_lik.detach()
         else:
             score_func = grad_log_p.flatten(1)
-            if "loss" in kernel_args:
-                loss = kernel_args["loss"].sum()
+            if "loss" in kwargs:
+                loss = kwargs["loss"].sum()
             else:
                 loss = grad_log_p.norm()
 
@@ -79,31 +79,32 @@ class SVGD:
             X.detach_()
 
         velocity = (k_xx @ score_func + grad_k) / X.shape[0]
+        velocity = -velocity.reshape(X.shape)
 
         iter_dict = {"k_xx": k_xx, "grad_k": grad_k, "loss": loss}
-        iter_dict.update(kernel_args)
+        iter_dict.update(kwargs)
         iter_dict = {
             k: v.detach() if hasattr(v, "detach") else v for k, v in iter_dict.items()
         }
-        return -velocity.reshape(X.shape), iter_dict
+        return velocity, iter_dict
 
     def step(
         self,
         X: torch.Tensor,
         grad_log_p: torch.Tensor = None,
         optimizer: optim.Optimizer = None,
-        **kernel_args,
+        **kwargs,
     ):
         def closure():
             optimizer.zero_grad()
-            X.grad, iter_dict = self._velocity(X, grad_log_p, **kernel_args)
+            X.grad, iter_dict = self._velocity(X, grad_log_p, **kwargs)
             iter_dict["grad"] = X.grad
             return iter_dict
 
         if isinstance(optimizer, torch.optim.Optimizer):
             iter_dict = optimizer.step(closure)
         else:
-            grad, iter_dict = self._velocity(X, grad_log_p, **kernel_args)
+            grad, iter_dict = self._velocity(X, grad_log_p, **kwargs)
             if self.opt_adagrad:  # compute simple Adagrad
                 # update sum of gradient's square
                 self.opt_inertia += grad ** 2
@@ -120,7 +121,7 @@ class SVGD:
         n_steps: int = 100,
         debug: bool = False,
         callback_func=None,
-        **kernel_args,
+        **kwargs,
     ) -> tuple:
         X = particles.detach()
         # defined here to include x as parameter, since x could change between calls
@@ -142,8 +143,8 @@ class SVGD:
             if score_estimator is not None:
                 X.requires_grad_(True)
                 grad_log_p, score_dict = score_estimator(X)
-                kernel_args.update(score_dict)
-            X, data_dict[i] = self.step(X, grad_log_p, optimizer, **kernel_args)
+                kwargs.update(score_dict)
+            X, data_dict[i] = self.step(X, grad_log_p, optimizer, **kwargs)
             X_seq = torch.cat([X_seq, X.detach().unsqueeze(0)], dim=0)
             if debug:
                 iterator.set_postfix(loss=data_dict[i]["grad"].norm(), refresh=False)
