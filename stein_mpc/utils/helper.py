@@ -7,6 +7,10 @@ import numpy as np
 import torch
 
 
+def generate_seeds(n):
+    return [random.randint(0, 2 ** 32 - 1) for _ in range(n)]
+
+
 def set_seed(seed=42):
     random.seed(seed)
     os.environ["PYTHONHASHSEED"] = str(seed)
@@ -16,19 +20,20 @@ def set_seed(seed=42):
     torch.backends.cudnn.benchmark = False
 
 
-def generate_seeds(n):
-    return [random.randint(0, 2 ** 32 - 1) for _ in range(n)]
-
-
 def get_project_root():
-    return Path(__file__).parent.parent.parent
+    return Path(__file__).parent.parent.parent.resolve()
 
 
-def get_default_progress_folder_path(folder_name: Path = None,):
+def get_local_storage_path(folder_name: Path = None, prefix: str = ""):
     if folder_name is None:
-        folder_name = time.strftime("%Y%m%d-%H%M%S")
-    root_path = get_project_root()
-    folder_path = Path(root_path, "data/local/" + str(folder_name))
+        folder_name = Path(prefix + time.strftime("%Y%m%d-%H%M%S"))
+    else:
+        folder_name = Path(folder_name)
+    root_path = get_project_root() / "data/local"
+    if folder_name.resolve().is_relative_to(root_path):
+        folder_path = root_path.joinpath(folder_name.resolve())
+    else:
+        folder_path = root_path.joinpath(folder_name)
     if not folder_path.exists():
         folder_path.mkdir(parents=True)
     return folder_path
@@ -49,12 +54,12 @@ def save_progress(
 
     :param data: A data object to save. If None, whole session is saved.
     :type data: object
-    :param folder_name: A path-like string containing the output path.
+    :param folder_name: A path-like string containing the output path stem folder.
     :type folder_name: str
     :param fig: A figure object.
     :type fig: matplotlib.figure.Figure
     """
-    folder_path = get_default_progress_folder_path(folder_name)
+    folder_path = get_local_storage_path(folder_name)
     if fig:
         plot_path = folder_path / "plots"
         if not plot_path.exists():
