@@ -305,7 +305,7 @@ class DuSt(BaseController):
         # TODO: see if can return just base_params_dict
         return states, actions, params_dict
 
-    def _sample_actions(self, pol_mean: torch.Tensor) -> torch.Tensor:
+    def _sample_actions(self, pol_mean: torch.Tensor = None) -> torch.Tensor:
         """Sample actions from Multivariate Normal policies while keeping the
         computational graph.
 
@@ -316,6 +316,7 @@ class DuSt(BaseController):
         Returns:
             torch.Tensor: Sampled actions.
         """
+        pol_mean = pol_mean if pol_mean is not None else self.pol_mean
         pi = dist.MultivariateNormal(pol_mean, self.pol_cov)
         # Use rsample to preserve gradient
         actions = pi.rsample(self.action_shape)
@@ -343,7 +344,7 @@ class DuSt(BaseController):
             Tuple[torch.Tensor, torch.Tensor]: A tuple containing the gradient of the
               log-posterior and the negative log-likelihood loss.
         """
-        # prior gradient (i.e. prior of policies w.r.t to previous step prior)
+        # prior gradient (i.e. gradient of policies w.r.t to previous step prior)
         with torch.no_grad():
             grad_pri = grad_gmm_log_p(self.prior, self.pol_mean)
 
@@ -447,7 +448,7 @@ class DuSt(BaseController):
         state: torch.Tensor,
         model: BaseModel,
         params_dist: dist.Distribution,
-        steps: int = 5,
+        opt_steps: int = 5,
     ) -> Tuple[torch.Tensor, dict]:
         """Computes the next sequence of actions and updates the controller state.
 
@@ -494,7 +495,7 @@ class DuSt(BaseController):
                   data. The kernel gram-matrix and gradient can be provided in this
                   dictionary using the keys `k_xx` and `grad_k`, respectively.
             """
-            # flat_pol gradients will be set by Stein Sampler
+            # policies gradients will be set by Stein Sampler
             score_dict = {}
             if self.action_shape:
                 actions = self._sample_actions(policies)
@@ -517,12 +518,12 @@ class DuSt(BaseController):
 
         # stein particles have shape [batch, extra_dims] and flattens extra_dims.
         data_dict, self.opt_state = self.stein_sampler.optimize(
-            self.pol_mean, score_estimator, self.opt_state, steps
+            self.pol_mean, score_estimator, self.opt_state, opt_steps
         )
         # to compute the weights, we may either re-sample the likelihood to get the
         # expected cost of the new θ_i or re-use the costs computed during the
         # `optimize` step to save computation.
-        pol_weights = self._get_pol_weights(data_dict[steps - 1]["costs"])
+        pol_weights = self._get_pol_weights(data_dict[opt_steps - 1]["costs"])
 
         # Pick best policy
         i_star = pol_weights.argmax()
