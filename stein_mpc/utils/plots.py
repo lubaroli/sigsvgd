@@ -444,14 +444,14 @@ def plot_2d_particles(x_all, step, log_p, n_grid=100):
     plt.show()
 
 
-def create_video_from_plots(save_path, plot_path=None):
+def create_video_from_plots(plot_path, save_path=None):
     try:
         import moviepy.editor as mpy
     except ImportError:
         print("Couldn't import package MoviePy. Aborting video creation.")
         return None
-    if plot_path is None:
-        plot_path = save_path / "plots"
+    if save_path is None:
+        save_path = plot_path
     video = mpy.ImageSequenceClip(str(plot_path), fps=20)
     video.write_videofile(str(save_path / "video.mp4"))
 
@@ -466,7 +466,7 @@ def plot_particles(model, data, save_path):
         ro.unsqueeze(1)  # add rollouts dimension for plotting
     for step in trange(ro.shape[0]):
         model.render(
-            path=save_path / "plots/{0:03d}.png".format(step),
+            path=save_path / "{0:03d}.png".format(step),
             states=traj[:step, ..., :2],
             rollouts=ro[step],
         )
