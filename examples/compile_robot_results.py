@@ -44,7 +44,7 @@ def compile_results(path):
 
 
 if __name__ == "__main__":
-    path = Path("data/local/test")
+    path = Path("data/local/robot-table_under_pick-20220922-225353")
     results = compile_results(path)
     df = pd.DataFrame(data=results)
-    print(df.to_markdown())
+    df.to_markdown(buf=path / "results.md")

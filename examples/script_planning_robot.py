@@ -1,15 +1,16 @@
-from torchcubicspline import NaturalCubicSpline, natural_cubic_spline_coeffs
 import time
 from pathlib import Path
 
 import numpy
 import sigkernel
 import torch
+import yaml
 from stein_mpc.inference import SVGD
 from stein_mpc.models.arm import arm_simulator, arm_visualiser
 from stein_mpc.models.ros_robot import continuous_occupancy_map
 from stein_mpc.utils.helper import generate_seeds, get_project_root, set_seed
 from torch.autograd import grad as ag
+from torchcubicspline import NaturalCubicSpline, natural_cubic_spline_coeffs
 
 
 class SignatureKernel:
@@ -61,19 +62,19 @@ class ScoreEstimator:
         return grad_log_p, score_dict
 
 
-def color_generator():
-    import plotly.express as px
-
-    while True:
-        yield from px.colors.qualitative.Plotly
-
-
 def create_spline_trajectory(knots, timesteps=100):
     t = torch.linspace(0, 1, timesteps).to(device)
     t_knots = torch.linspace(0, 1, knots.shape[-2]).to(device)
     coeffs = natural_cubic_spline_coeffs(t_knots, knots)
     spline = NaturalCubicSpline(coeffs)
     return spline.evaluate(t)
+
+
+def color_generator():
+    import plotly.express as px
+
+    while True:
+        yield from px.colors.qualitative.Plotly
 
 
 def plot_all_trajectory_end_effector_from_knot(
@@ -178,6 +179,33 @@ def save_all_trajectory_end_effector_from_knot(output_fname, *args, **kwargs):
     fig.write_image(output_fname)
 
 
+def plot_callback(x, q_initial, q_target):
+    """
+    A callback function that is called in each iteration by the optimiser.
+    We will keep track of the iteration number and plot every X iter
+    """
+    global INDEX
+    if INDEX % PLOT_EVERY == 0:
+        save_all_trajectory_end_effector_from_knot(
+            plot_path / f"{INDEX:03d}.png", q_initial, q_target, x.detach(), title=None,
+        )
+    INDEX += 1
+
+
+def load_request(problem, req_num):
+    project_path = get_project_root()
+    req_path = project_path.joinpath(
+        f"robodata/{problem}_panda/request{req_num:04d}.yaml"
+    )
+    with req_path.open() as f:
+        request = yaml.load(f, yaml.FullLoader)
+    q_start = request["start_state"]["joint_state"]["position"]
+    target_dict_pairs = request["goal_constraints"][0]["joint_constraints"]
+    q_target = [target_dict_pairs[i]["position"] for i in range(len(target_dict_pairs))]
+    q_target.extend(q_start[-2:])
+    return torch.as_tensor(q_start), torch.as_tensor(q_target)
+
+
 def batch_cost_function(
     x, start_pose, target_pose, timesteps=100, w_collision=5.0, w_trajdist=1.0,
 ):
@@ -219,34 +247,24 @@ def batch_cost_function(
     return cost, traj_of_end_effector
 
 
-def plot_callback(x, q_initial, q_target):
-    """
-    A callback function that is called in each iteration by the optimiser.
-    We will keep track of the iteration number and plot every X iter
-    """
-    global INDEX
-    if INDEX % PLOT_EVERY == 0:
-        save_all_trajectory_end_effector_from_knot(
-            plot_path / f"{INDEX:03d}.png", q_initial, q_target, x.detach(), title=None,
-        )
-    INDEX += 1
-
-
-def run_optimisation(method="pathsig"):
+def run_optimisation(
+    q_initial, q_target, batch, length, channels, method="pathsig", lr=0.1
+):
     limit_lowers, limit_uppers = robot.get_joints_limits()
 
-    # defining our initial and target joints configurations
-    q_initial = torch.rand(9) * (limit_uppers - limit_lowers) + limit_lowers
-    q_initial[1] = 0
-    q_initial[2] = 0.5
-    q_target = torch.rand(9) * (limit_uppers - limit_lowers) + limit_lowers
-    q_target[1] = 0.25
+    # # defining our initial and target joints configurations
+    # q_initial = torch.rand(9) * (limit_uppers - limit_lowers) + limit_lowers
+    # q_initial[1] = 0
+    # q_initial[2] = 0.5
+    # q_target = torch.rand(9) * (limit_uppers - limit_lowers) + limit_lowers
+    # q_target[1] = 0.25
 
     ####################################################
     q_initial = q_initial.to(device)
     q_target = q_target.to(device)
 
-    batch, length, channels = 6, 5, 9
+    limit_lowers = limit_lowers[:channels]
+    limit_uppers = limit_uppers[:channels]
     x = (
         torch.rand(batch, length - 2, channels) * (limit_uppers - limit_lowers)
         + limit_lowers
@@ -254,7 +272,7 @@ def run_optimisation(method="pathsig"):
 
     kernel = SignatureKernel(lengthscale=(length + channels) ** 0.5)
     estimator = ScoreEstimator(q_initial, q_target, kernel)
-    stein_sampler = SVGD(kernel, optimizer_class=torch.optim.Adam, lr=0.2)
+    stein_sampler = SVGD(kernel, optimizer_class=torch.optim.Adam, lr=lr)
 
     save_all_trajectory_end_effector_from_knot(
         experiment_path / "initial.png", q_initial, q_target, x, title=None,
@@ -289,62 +307,84 @@ def run_optimisation(method="pathsig"):
 
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
-
     project_path = get_project_root()
     urdf_path = project_path.joinpath("robot_resources/panda/urdf/panda.urdf")
-    occmap_fname = project_path.joinpath("robodata/001_continuous-occmap-weight.ckpt")
-    try:
-        occmap = continuous_occupancy_map.load_trained_model(occmap_fname)
-        occmap.to(device)
-    except FileNotFoundError as e:
-        print(
-            f"\nERROR: File not found at {occmap_fname}."
-            f"\nHave you downloaded the weight file via running 'Make'?\n"
-        )
-        raise e
-
-    # choose links to operate
-    target_link_names = [
-        # "panda_link0",
-        "panda_link1",
-        "panda_link2",
-        "panda_link3",
-        "panda_link4",
-        "panda_link5",
-        "panda_link6",
-        "panda_link7",
-        "panda_link8",
-        "panda_hand",
+    problems = [
+        "bookshelf_small",
+        "bookshelf_tall",
+        "bookshelf_thin",
+        "box",
+        "cage",
+        "table_bars",
+        "table_pick",
+        "table_under_pick",
     ]
+    for problem in problems:
+        occmap_fname = project_path.joinpath(
+            f"robodata/{problem}_panda-scene0001_continuous-occmap-weight.ckpt"
+        )
+        try:
+            occmap = continuous_occupancy_map.load_trained_model(occmap_fname)
+            occmap.to(device)
+        except FileNotFoundError as e:
+            print(
+                f"\nERROR: File not found at {occmap_fname}."
+                f"\nHave you downloaded the weight file via running 'Make'?\n"
+            )
+            raise e
 
-    # construct the robot arm as a simulator
-    robot = arm_simulator.Robot(
-        urdf_path=str(urdf_path),
-        target_link_names=target_link_names,
-        end_effector_link_name="panda_hand",
-        device=device,
-    )
+        # choose links to operate
+        target_link_names = [
+            # "panda_link0",
+            "panda_link1",
+            "panda_link2",
+            "panda_link3",
+            "panda_link4",
+            "panda_link5",
+            "panda_link6",
+            "panda_link7",
+            "panda_link8",
+            "panda_hand",
+        ]
 
-    # construct a visualiser for the robot for plotting
-    robot_visualiser = arm_visualiser.RobotVisualiser(robot)
+        # construct the robot arm as a simulator
+        robot = arm_simulator.Robot(
+            urdf_path=str(urdf_path),
+            target_link_names=target_link_names,
+            end_effector_link_name="panda_hand",
+            device=device,
+        )
 
-    # ========== Experiment Setup ==========
-    print("\n=== Start of robot arm experiment ===")
-    episodes = 5
-    n_iter = 500
-    ymd_time = time.strftime("%Y%m%d-%H%M%S")
-    seeds = generate_seeds(episodes)
-    PLOT_EVERY = 499
+        # construct a visualiser for the robot for plotting
+        robot_visualiser = arm_visualiser.RobotVisualiser(robot)
 
-    methods = ["sgd", "pathsig"]
-    for ep_num, seed in enumerate(seeds):
-        for method in methods:
-            set_seed(seed)
-            print(f"Episode {ep_num + 1} with seed {seed}")
-            print(f"running {method}")
-            INDEX = 0
-            experiment_path = Path(f"data/local/robot-{ymd_time}/{seed}/{method}")
-            plot_path = experiment_path / "plots"
-            if not plot_path.exists():
-                plot_path.mkdir(parents=True)
-            run_optimisation(method)
+        # ========== Experiment Setup ==========
+        print("\n=== Start of robot arm experiment ===")
+        episodes = 5
+        n_iter = 500
+        batch, length, channels = 15, 5, 9
+        ymd_time = time.strftime("%Y%m%d-%H%M%S")
+        seeds = generate_seeds(episodes)
+        PLOT_EVERY = 499
+
+        methods = ["pathsig", "sgd"]
+        requests = [
+            torch.randint(0 + 25 * i, 24 + 25 * i, (1,)).item() for i in range(4)
+        ]
+        for req in requests:
+            print(f"=== Scene 1 of {problem} problem with request {req} ===")
+            q_start, q_target = load_request(problem, req)
+            for ep_num, seed in enumerate(seeds):
+                for method in methods:
+                    set_seed(seed)
+                    print(
+                        f"Episode {ep_num + 1} - seed {seed}: optimizing with {method}"
+                    )
+                    INDEX = 0
+                    experiment_path = Path(
+                        f"data/local/robot-{problem}-{ymd_time}/{req}-{seed}/{method}"
+                    )
+                    plot_path = experiment_path / "plots"
+                    if not plot_path.exists():
+                        plot_path.mkdir(parents=True)
+                    run_optimisation(q_start, q_target, batch, length, channels, method)
