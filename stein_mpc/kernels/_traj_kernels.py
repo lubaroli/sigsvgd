@@ -2,6 +2,7 @@ from typing import Callable, Union, Tuple
 
 import torch
 import signatory
+import sigkernel
 
 from ..utils.math import pw_dist_sq
 from . import BaseKernel, GaussianKernel
@@ -141,3 +142,15 @@ class PathSigKernel(BaseKernel):
         else:
             K = self.static_kernel(X_sig, Y_sig, compute_grad=False)
             return K
+
+
+class SignatureKernel(BaseKernel):
+    def __init__(self, bandwidth: float = 0.5, depth: int = 3, **kwargs):
+        super().__init__(lambda: bandwidth, analytic_grad=False, **kwargs)
+        static_kernel = sigkernel.RBFKernel(sigma=bandwidth)
+        self.kernel = sigkernel.SigKernel(static_kernel, dyadic_order=depth)
+
+    def __call__(self, X, Y, **kwargs):
+        ctx = {"device": X.device, "dtype": X.dtype}
+        k_xx = self.kernel.compute_Gram(X.double(), Y.double())
+        return k_xx.to(**ctx)
