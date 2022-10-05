@@ -147,7 +147,7 @@ class SVGD:
             X, data_dict[i] = self.step(X, grad_log_p, optimizer, **kwargs)
             X_seq = torch.cat([X_seq, X.detach().unsqueeze(0)], dim=0)
             if debug:
-                iterator.set_postfix(loss=data_dict[i]["grad"].norm(), refresh=False)
+                iterator.set_postfix(loss=data_dict[i]["loss"].norm(), refresh=False)
             if callback_func is not None:
                 callback_func(X)
         data_dict["trace"] = X_seq
