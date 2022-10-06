@@ -1,12 +1,9 @@
-from stein_mpc.models.arm import arm_simulator
-from stein_mpc.models.ros_robot import robot_scene
-
-import pybullet as p
 import argparse
 import time
-import numpy as np
 
-from stein_mpc.models.ros_robot.robot_scene import interpolate_trajectory
+import pybullet as p
+
+from stein_mpc.models.ros_robot import robot_scene
 from stein_mpc.utils.helper import get_project_root
 
 parser = argparse.ArgumentParser()
@@ -75,7 +72,7 @@ if __name__ == "__main__":
         )
         scene.build_scene()
         for i, (request_fn, traj_fn) in enumerate(
-            zip(scene.request_paths, scene.trajectory_paths)
+                zip(scene.request_paths, scene.trajectory_paths)
         ):
             if i >= args.num_solution_to_vis:
                 break
@@ -90,7 +87,8 @@ if __name__ == "__main__":
             import pybullet_tools.utils as pu
 
             tid = pu.add_text(
-                f"{tag_name}: traj {i+1} / {min(len(scene), args.num_solution_to_vis)}", position=[0, 0, 1.5]
+                f"{tag_name}: traj {i + 1} / {min(len(scene), args.num_solution_to_vis)}",
+                position=[0, 0, 1.5]
             )
             scene.play(
                 traj,
@@ -107,5 +105,3 @@ if __name__ == "__main__":
 
         scene.clear()
         robot.destroy()
-
-    args = argparse.parse()

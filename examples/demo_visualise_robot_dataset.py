@@ -1,20 +1,19 @@
+import argparse
 import csv
-import os
 
 import numpy as np
 import plotly.graph_objects as go
 import torch
 
-THIS_DIR = os.path.dirname(os.path.realpath(__file__))
+from stein_mpc.models.ros_robot import robot_scene
 
-
-import argparse
 parser = argparse.ArgumentParser()
-parser.add_argument("tagname", nargs='?', default='001')
+parser.add_argument("tagname", nargs='?', default=robot_scene.tag_names[0])
 args = parser.parse_args()
 
+scene = robot_scene.RobotScene(args.tagname)
 
-with open(f"{THIS_DIR}/../robodata/{args.tagname}_dataset.csv") as f:
+with open(scene.dataset_path) as f:
     data = np.array([list(map(float, l)) for l in csv.reader(f)])
 
 dataset = torch.Tensor(data)
@@ -44,9 +43,7 @@ fig.show()
 
 from stein_mpc.models.ros_robot import continuous_occupancy_map
 
-net = continuous_occupancy_map.load_trained_model(
-    f"{THIS_DIR}/../robodata/{args.tagname}_continuous-occmap-weight.ckpt"
-)
+net = continuous_occupancy_map.load_trained_model(scene.weight_path)
 
 fig = continuous_occupancy_map.visualise_model_pred(net, prob_threshold=0.95)
 
