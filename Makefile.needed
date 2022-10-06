@@ -1,0 +1,19 @@
+TAGS=bookshelf_small_panda bookshelf_tall_panda bookshelf_thin_panda box_panda cage_panda kitchen_panda table_bars_panda table_pick_panda table_under_pick_panda
+
+NEEDED=$(addsuffix -scene0001_continuous-occmap-weight.ckpt, $(TAGS))
+NEEDED+=$(addsuffix -scene0001_dataset.csv, $(TAGS))
+NEEDED+=$(addsuffix -scene0001.yaml, $(TAGS))
+NEEDED+=$(addsuffix -config.yaml, $(TAGS))
+
+# NEEDED+=$(addsuffix -scene0001_request0001.yaml, $(TAGS))
+REQUESTS_AND_PATHS=$(shell \
+	for i in $$(seq 1 100); do \
+		for tag in $(TAGS); do \
+			for type in request path; do \
+				printf "%s-scene0001_%s%04d.yaml\n" $$tag $$type $$i ; \
+			done; \
+		done; \
+	done;\
+	)
+NEEDED+=$(REQUESTS_AND_PATHS)
+
