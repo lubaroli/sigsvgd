@@ -4,3 +4,4 @@ git+https://github.com/soraxas/differentiable-robot-model@improved-performance
 
 pytorch_lightning
 plotly
+numpy-quaternion

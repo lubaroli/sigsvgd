@@ -90,7 +90,7 @@ if __name__ == "__main__":
             import pybullet_tools.utils as pu
 
             tid = pu.add_text(
-                f"{tag_name}: traj {i} / {len(scene)}", position=[0, 0, 1.5]
+                f"{tag_name}: traj {i+1} / {min(len(scene), args.num_solution_to_vis)}", position=[0, 0, 1.5]
             )
             scene.play(
                 traj,
