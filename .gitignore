@@ -188,7 +188,7 @@ tags
 
 # Manual inclusions
 demo/
-data/local/
+data/
 .vim/
 .ropeproject/
 .vscode/

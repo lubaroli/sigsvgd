@@ -2,62 +2,65 @@ import time
 from pathlib import Path
 
 import numpy
-import sigkernel
 import torch
 import yaml
 from stein_mpc.inference import SVGD
+from stein_mpc.kernels import SignatureKernel, GaussianKernel
 from stein_mpc.models.arm import arm_simulator, arm_visualiser
 from stein_mpc.models.ros_robot import continuous_occupancy_map
 from stein_mpc.utils.helper import generate_seeds, get_project_root, set_seed
+from stein_mpc.utils.scheduler import CosineScheduler, FactorScheduler
 from torch.autograd import grad as ag
 from torchcubicspline import NaturalCubicSpline, natural_cubic_spline_coeffs
 
 
-class SignatureKernel:
-    def __init__(self, lengthscale=0.5, depth=3):
-        static_kernel = sigkernel.RBFKernel(sigma=lengthscale)
-        self.kernel = sigkernel.SigKernel(static_kernel, dyadic_order=depth)
-
-    def __call__(self, X, Y):
-        ctx = {"device": X.device, "dtype": X.dtype}
-        k_xx = self.kernel.compute_Gram(X.double(), Y.double())
-        return k_xx.to(**ctx)
-
-
 class ScoreEstimator:
-    def __init__(self, q_initial, q_target, kernel):
+    def __init__(self, q_initial, q_target, kernel, scheduler=None):
         self.q_initial = q_initial
         self.q_target = q_target
         self.kernel = kernel
+        if not scheduler:
+            self.scheduler = lambda: 1
+        else:
+            self.scheduler = scheduler
 
     # need score estimator to include trajectory length regularization cost
     def sgd_score_estimator(self, x):
-        cost, _ = batch_cost_function(x, self.q_initial, self.q_target)
+        cost, cost_dict = batch_cost_function(x, self.q_initial, self.q_target)
         # considering the likelihood is exp(-cost)
         grad_log_p = ag(-cost.sum(), x, retain_graph=True)[0]
         k_xx = torch.eye(x.shape[0], device=device)
         grad_k = torch.zeros_like(grad_log_p, device=device)
-        score_dict = {"k_xx": k_xx, "grad_k": grad_k}
+        score_dict = {"k_xx": k_xx, "grad_k": grad_k, "loss": cost, **cost_dict}
         return grad_log_p, score_dict
 
-    def score_estimator(self, x):
-        cost, traj = batch_cost_function(self, x)
+    def svgd_score_estimator(self, x):
+        cost, cost_dict = batch_cost_function(x, self.q_initial, self.q_target)
+        ee_traj = cost_dict["ee_trajectories"]
         # considering the likelihood is exp(-cost)
         grad_log_p = ag(-cost.sum(), x, retain_graph=True)[0]
-        k_xx, grad_k = self.kernel(traj, traj)
-        score_dict = {"k_xx": k_xx, "grad_k": grad_k}
+        k_xx = self.kernel(ee_traj.flatten(1), ee_traj.flatten(1), compute_grad=False)
+        grad_k = ag(k_xx.sum(), x)[0]
+        score_dict = {
+            "k_xx": k_xx,
+            "grad_k": self.scheduler() * grad_k,
+            "loss": cost,
+            **cost_dict,
+        }
         return grad_log_p, score_dict
 
-    def autograd_score_estimator(self, x):
-        cost, traj = batch_cost_function(x, self.q_initial, self.q_target)
+    def pathsig_score_estimator(self, x):
+        cost, cost_dict = batch_cost_function(x, self.q_initial, self.q_target)
+        ee_traj = cost_dict["ee_trajectories"]
         # considering the likelihood is exp(-cost)
         grad_log_p = ag(-cost.sum(), x, retain_graph=True)[0].flatten(1)
-        k_xx = self.kernel(traj, traj)
+        k_xx = self.kernel(ee_traj, ee_traj)
         grad_k = ag(k_xx.sum(), x)[0]
         score_dict = {
             "k_xx": k_xx.detach(),
-            "grad_k": grad_k.detach(),
+            "grad_k": self.scheduler() * grad_k.detach(),
             "loss": cost,
+            **cost_dict,
         }
         return grad_log_p, score_dict
 
@@ -206,6 +209,13 @@ def load_request(problem, req_num):
     return torch.as_tensor(q_start), torch.as_tensor(q_target)
 
 
+def create_body_points(x, n_pts=10):
+    inter_pts = torch.arange(0, 1, 1 / n_pts)
+    device = x.device
+    body_points = x[:-1, None] + inter_pts[:, None, None].to(device) * x[1:, None]
+    return body_points.flatten(0, 1)
+
+
 def batch_cost_function(
     x, start_pose, target_pose, timesteps=100, w_collision=5.0, w_trajdist=1.0,
 ):
@@ -216,17 +226,17 @@ def batch_cost_function(
     traj = create_spline_trajectory(knots, timesteps)
 
     _original_shape = traj.shape
-    traj = traj.reshape(-1, _original_shape[-1])
-
-    xs_all_joints = robot.qs_to_joints_xs(traj)
+    # xs shape is [n_dof, batch * timesteps, 3]
+    xs_all_joints = robot.qs_to_joints_xs(traj.reshape(-1, _original_shape[-1]))
 
     traj_of_end_effector = xs_all_joints[-1, ...]
     traj_of_end_effector = traj_of_end_effector.reshape(
         _original_shape[0], _original_shape[1], -1
     )
 
-    # this collision prob is in the shape of [ndof x (batch x timesteps) x 1]
-    collision_prob = occmap(xs_all_joints)
+    # this collision prob is in the shape of [n_dof * n_pts x (batch x timesteps) x 1]
+    body_points = create_body_points(xs_all_joints)
+    collision_prob = occmap(body_points)
     # the following is now in the shape of [batch x timesteps]
     collision_prob = (
         collision_prob.sum(0)
@@ -244,11 +254,21 @@ def batch_cost_function(
     # the following should now be in 1d shape of [batch]
     cost = w_collision * collision_prob + w_trajdist * traj_dist
 
-    return cost, traj_of_end_effector
+    return (
+        cost,
+        {"knots": knots, "trajectories": traj, "ee_trajectories": traj_of_end_effector},
+    )
 
 
 def run_optimisation(
-    q_initial, q_target, batch, length, channels, method="pathsig", lr=0.1
+    q_initial,
+    q_target,
+    batch,
+    length,
+    channels,
+    method="pathsig",
+    lr=0.1,
+    scheduler=None,
 ):
     limit_lowers, limit_uppers = robot.get_joints_limits()
 
@@ -259,7 +279,6 @@ def run_optimisation(
     # q_target = torch.rand(9) * (limit_uppers - limit_lowers) + limit_lowers
     # q_target[1] = 0.25
 
-    ####################################################
     q_initial = q_initial.to(device)
     q_target = q_target.to(device)
 
@@ -270,18 +289,26 @@ def run_optimisation(
         + limit_lowers
     ).to(device)
 
-    kernel = SignatureKernel(lengthscale=(length + channels) ** 0.5)
-    estimator = ScoreEstimator(q_initial, q_target, kernel)
-    stein_sampler = SVGD(kernel, optimizer_class=torch.optim.Adam, lr=lr)
+    if method == "svgd":
+        kernel = GaussianKernel(bandwidth_fn=lambda _: (length + channels) ** 0.5)
+    else:
+        kernel = SignatureKernel(bandwidth=(length + channels) ** 0.5)
+    scheduler = (
+        CosineScheduler(1, 0, 3 * n_iter // 4, n_iter // 4)
+        if scheduler is None
+        else scheduler
+    )
+    estimator = ScoreEstimator(q_initial, q_target, kernel, scheduler=scheduler)
+    stein_sampler = SVGD(kernel, optimizer_class=None, lr=lr)
 
     save_all_trajectory_end_effector_from_knot(
         experiment_path / "initial.png", q_initial, q_target, x, title=None,
     )
 
-    if method == "pathsig":
+    if method == "ps_sgd":
         wu_data_dict, _ = stein_sampler.optimize(
             x,
-            estimator.autograd_score_estimator,
+            estimator.pathsig_score_estimator,
             n_steps=n_iter - n_iter // 4,
             debug=True,
             callback_func=lambda _x: plot_callback(_x, q_initial, q_target),
@@ -294,6 +321,15 @@ def run_optimisation(
             callback_func=lambda _x: plot_callback(_x, q_initial, q_target),
         )
         torch.save([wu_data_dict, data_dict], f=experiment_path / "data.pt")
+    elif method == "svgd":
+        data_dict, _ = stein_sampler.optimize(
+            x,
+            estimator.svgd_score_estimator,
+            n_steps=n_iter,
+            debug=True,
+            callback_func=lambda _x: plot_callback(_x, q_initial, q_target),
+        )
+        torch.save(data_dict, f=experiment_path / "data.pt")
     elif method == "sgd":
         data_dict, _ = stein_sampler.optimize(
             x,
@@ -303,6 +339,23 @@ def run_optimisation(
             callback_func=lambda _x: plot_callback(_x, q_initial, q_target),
         )
         torch.save(data_dict, f=experiment_path / "data.pt")
+    else:
+        data_dict, _ = stein_sampler.optimize(
+            x,
+            estimator.pathsig_score_estimator,
+            n_steps=n_iter,
+            debug=True,
+            callback_func=lambda _x: plot_callback(_x, q_initial, q_target),
+        )
+        torch.save(data_dict, f=experiment_path / "data.pt")
+
+    save_all_trajectory_end_effector_from_knot(
+        experiment_path / "final.png",
+        q_initial,
+        q_target,
+        data_dict["trace"][-1],
+        title=None,
+    )
 
 
 if __name__ == "__main__":
@@ -365,12 +418,13 @@ if __name__ == "__main__":
         batch, length, channels = 15, 5, 9
         ymd_time = time.strftime("%Y%m%d-%H%M%S")
         seeds = generate_seeds(episodes)
-        PLOT_EVERY = 499
+        PLOT_EVERY = 50
 
-        methods = ["pathsig", "sgd"]
+        methods = ["svgd", "sgd", "pathsig"]
         requests = [
             torch.randint(0 + 25 * i, 24 + 25 * i, (1,)).item() for i in range(4)
         ]
+        requests = [1]
         for req in requests:
             print(f"=== Scene 1 of {problem} problem with request {req} ===")
             q_start, q_target = load_request(problem, req)
@@ -387,4 +441,6 @@ if __name__ == "__main__":
                     plot_path = experiment_path / "plots"
                     if not plot_path.exists():
                         plot_path.mkdir(parents=True)
-                    run_optimisation(q_start, q_target, batch, length, channels, method)
+                    run_optimisation(
+                        q_start, q_target, batch, length, channels, method, lr=0.001
+                    )
