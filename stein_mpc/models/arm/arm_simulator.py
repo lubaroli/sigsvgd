@@ -1,11 +1,10 @@
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Union, Iterable
 
 import pybullet as p
 import pybullet_data
 import pybullet_tools
 import pybullet_tools.utils
 import torch
-
 from differentiable_robot_model import DifferentiableRobotModel
 
 WorkSpaceType = torch.Tensor
@@ -21,6 +20,9 @@ class Robot:
         start_position: List[float] = (0, 0, 0),
         start_orientation: List[float] = (0, 0, 0, 1),
         device=None,
+        include_plane=True,
+        p_client=p.DIRECT,
+        has_gravity=False,
     ):
         self.urdf_path = urdf_path
         self.target_link_names = target_link_names
@@ -45,15 +47,18 @@ class Robot:
 
         ###############################################################
         # setup pybullet
-        self.physicsClient = p.connect(p.DIRECT)
+        self.physicsClient = p.connect(p_client)
         # physicsClient = p.connect(p.GUI)  # or p.DIRECT for non-graphical version
 
-        pybullet_tools.utils.disable_gravity()
-        # p.setGravity(0,0,-10)
-        p.setGravity(0, 0, -9.81)
+        if has_gravity:
+            p.setGravity(0, 0, -9.81)
+            # p.setGravity(0,0,-10)
+        else:
+            pybullet_tools.utils.disable_gravity()
 
         p.setAdditionalSearchPath(pybullet_data.getDataPath())  # optionally
-        planeId = p.loadURDF("plane.urdf")
+        if include_plane:
+            planeId = p.loadURDF("plane.urdf")
         # startOrientation = p.getQuaternionFromEualer([0, 0, 0])
 
         self.pyb_robot_id = p.loadURDF(
@@ -63,6 +68,19 @@ class Robot:
             self.pyb_robot_id, end_effector_link_name
         )
         ###############################################################
+
+    def joint_name_to_indexes(self, joint_name: List[str]):
+        return [
+            pybullet_tools.utils.get_joint(self.pyb_robot_id, joint_name)
+            for joint_name in joint_name
+        ]
+
+    def set_qs(
+        self,
+        qs: Union[ConfigurationSpaceType, Iterable[float]],
+        joint_indexes: List[int],
+    ):
+        pybullet_tools.utils.set_joint_positions(self.pyb_robot_id, joint_indexes, qs)
 
     def ee_xs_to_qs(
         self, xs: WorkSpaceType, reference_orientation: Optional[List[float]] = None
@@ -111,10 +129,12 @@ class Robot:
         lowers = []
         uppers = []
         for limits in self.learnable_robot_model.get_joint_limits():
-
             lowers.append(limits["lower"])
             uppers.append(limits["upper"])
         return torch.Tensor(lowers), torch.Tensor(uppers)
+
+    def destroy(self):
+        p.disconnect(self.pyb_robot_id)
 
     # def get_joints_limits(self):
     #     lowers = []

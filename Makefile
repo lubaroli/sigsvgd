@@ -8,8 +8,9 @@ TAGS= bookshelf_small_panda-scene0001 bookshelf_tall_panda-scene0001 bookshelf_t
 WEIGHTS=$(addsuffix _continuous-occmap-weight.ckpt, $(TAGS))
 DATASETS=$(addsuffix _dataset.csv, $(TAGS))
 REQUESTS=$(addsuffix _request0001.yaml, $(TAGS))
+SCENES=$(addsuffix .yaml, $(TAGS))
 
-all:  $(addprefix $(DATA_DIR)/, $(DATASETS) $(WEIGHTS) $(REQUESTS))
+all:  $(addprefix $(DATA_DIR)/, $(DATASETS) $(WEIGHTS) $(REQUESTS) $(SCENES))
 
 
 $(DATA_DIR)/%:
