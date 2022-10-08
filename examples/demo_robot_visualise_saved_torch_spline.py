@@ -46,12 +46,11 @@ if __name__ == "__main__":
         device="cpu",
         # p_client=p.DIRECT,
         p_client=p.GUI,
+        include_plane=False,
     )
     scene = robot_scene.RobotScene(robot=robot, tag_name=tag_name)
+    scene.build_scene()
     print(f"Scene: {tag_name}\n")
-
-    print(robot.get_joints_limits())
-    raiesnt
 
     rand_q = robot.get_joints_limits()
 
@@ -78,12 +77,13 @@ if __name__ == "__main__":
                         Trajectory(
                             [
                                 JointState(
-                                    name=target_joint_names, position=traj[j, t, ...]
+                                    name=robot.target_joint_names,
+                                    position=traj[j, t, ...],
                                 )
                                 for t in range(traj.shape[1])
                             ]
                         ),
-                        target_joint_names,
+                        robot.target_joint_names,
                         interpolate_step=5,
                         delay_between_interpolated_joint=args.delay_between_interpolated_joint,
                         delay_between_joint=args.delay_between_joint,
