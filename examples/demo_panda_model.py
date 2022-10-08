@@ -7,8 +7,8 @@ import numpy as np
 
 import plotly.graph_objects as go
 
-from stein_mpc.models.arm import arm_simulator
-from stein_mpc.models.arm import arm_visualiser
+from stein_mpc.models.robot import robot_simulator
+from stein_mpc.models.robot import robot_visualiser
 
 urdf_path = f"{THIS_DIR}/../robot_resources/panda/urdf/panda.urdf"
 

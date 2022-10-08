@@ -14,7 +14,7 @@ from scipy.interpolate import interp1d
 import numpy as np
 from stein_mpc.utils.helper import get_project_root
 
-from stein_mpc.models.arm.arm_simulator import Robot
+from stein_mpc.models.robot.robot_simulator import Robot
 
 this_directory = Path(path.abspath(path.dirname(__file__)))
 

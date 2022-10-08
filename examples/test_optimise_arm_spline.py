@@ -5,8 +5,8 @@ import numpy as np
 import torch
 import tqdm
 
-from stein_mpc.models.arm import arm_simulator
-from stein_mpc.models.arm import arm_visualiser
+from stein_mpc.models.robot import robot_simulator
+from stein_mpc.models.robot import robot_visualiser
 
 THIS_DIR = os.path.dirname(os.path.realpath(__file__))
 
@@ -41,7 +41,7 @@ robot_visualiser = arm_visualiser.RobotVisualiser(robot)
 ############################################################
 # load NN model and display prob
 
-from stein_mpc.models.ros_robot import continuous_occupancy_map
+from stein_mpc.models.robot_learning import continuous_occupancy_map
 
 occmap = continuous_occupancy_map.load_trained_model(
     f"{THIS_DIR}/../robodata/001_continuous-occmap-weight.ckpt"

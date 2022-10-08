@@ -3,7 +3,7 @@ import time
 
 import pybullet as p
 
-from stein_mpc.models.ros_robot import robot_scene
+from stein_mpc.models.robot import robot_scene
 from stein_mpc.utils.helper import get_project_root
 
 parser = argparse.ArgumentParser()

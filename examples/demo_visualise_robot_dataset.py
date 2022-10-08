@@ -5,7 +5,7 @@ import numpy as np
 import plotly.graph_objects as go
 import torch
 
-from stein_mpc.models.ros_robot import robot_scene
+from stein_mpc.models.robot import robot_scene
 
 parser = argparse.ArgumentParser()
 parser.add_argument("tagname", nargs='?', default=robot_scene.tag_names[0])
@@ -41,7 +41,7 @@ fig.show()
 ############################################################
 # load NN model and display prob
 
-from stein_mpc.models.ros_robot import continuous_occupancy_map
+from stein_mpc.models.robot_learning import continuous_occupancy_map
 
 net = continuous_occupancy_map.load_trained_model(scene.weight_path)
 

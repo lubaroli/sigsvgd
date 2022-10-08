@@ -6,8 +6,8 @@ import torch
 import yaml
 from stein_mpc.inference import SVGD
 from stein_mpc.kernels import SignatureKernel, GaussianKernel
-from stein_mpc.models.arm import arm_simulator, arm_visualiser
-from stein_mpc.models.ros_robot import continuous_occupancy_map
+from stein_mpc.models.robot import robot_simulator, robot_visualiser
+from stein_mpc.models.robot_learning import continuous_occupancy_map
 from stein_mpc.utils.helper import generate_seeds, get_project_root, set_seed
 from stein_mpc.utils.scheduler import CosineScheduler, FactorScheduler
 from torch.autograd import grad as ag

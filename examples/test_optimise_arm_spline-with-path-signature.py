@@ -6,7 +6,7 @@ import numpy
 import sigkernel
 import torch
 from stein_mpc.inference import SVGD
-from stein_mpc.models.arm import arm_simulator, arm_visualiser
+from stein_mpc.models.robot import robot_simulator, robot_visualiser
 from stein_mpc.utils.helper import generate_seeds, get_local_storage_path, set_seed
 from torch.autograd import grad as ag
 
@@ -55,7 +55,7 @@ robot_visualiser = arm_visualiser.RobotVisualiser(robot)
 ############################################################
 # load NN model and display prob
 
-from stein_mpc.models.ros_robot import continuous_occupancy_map
+from stein_mpc.models.robot_learning import continuous_occupancy_map
 
 occupancy_map_wegiht_fname = f"{THIS_DIR}/../robodata/001_continuous-occmap-weight.ckpt"
 

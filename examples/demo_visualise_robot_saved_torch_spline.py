@@ -7,8 +7,8 @@ import pybullet_tools.utils as pu
 import torch
 from torchcubicspline import NaturalCubicSpline, natural_cubic_spline_coeffs
 
-from stein_mpc.models.ros_robot import robot_scene
-from stein_mpc.models.ros_robot.robot_scene import Trajectory, JointState
+from stein_mpc.models.robot import robot_scene
+from stein_mpc.models.robot.robot_scene import Trajectory, JointState
 from stein_mpc.utils.helper import get_project_root
 
 parser = argparse.ArgumentParser()
