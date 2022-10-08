@@ -1,6 +1,8 @@
 TAGS=bookshelf_small_panda bookshelf_tall_panda bookshelf_thin_panda box_panda cage_panda kitchen_panda table_bars_panda table_pick_panda table_under_pick_panda
 
-NEEDED=$(addsuffix -scene0001_continuous-occmap-weight.ckpt, $(TAGS))
+NEEDED=selfCollisionModel_PandaRobot.pkl
+
+NEEDED+=$(addsuffix -scene0001_continuous-occmap-weight.ckpt, $(TAGS))
 NEEDED+=$(addsuffix -scene0001_dataset.csv, $(TAGS))
 NEEDED+=$(addsuffix -scene0001.yaml, $(TAGS))
 NEEDED+=$(addsuffix -config.yaml, $(TAGS))

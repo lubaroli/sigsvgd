@@ -11,7 +11,10 @@ from stein_mpc.kernels import SignatureKernel, GaussianKernel
 from stein_mpc.models.robot import robot_visualiser, robot_scene
 from stein_mpc.models.robot.robot_scene import PathRequest
 from stein_mpc.models.robot.robot_simulator import PandaRobot
-from stein_mpc.models.robot_learning import continuous_occupancy_map
+from stein_mpc.models.robot_learning import (
+    continuous_occupancy_map,
+    continuous_self_collision_pred,
+)
 from stein_mpc.utils.helper import generate_seeds, get_project_root, set_seed
 from stein_mpc.utils.scheduler import CosineScheduler
 
@@ -219,7 +222,14 @@ def create_body_points(x, n_pts=10):
 
 
 def batch_cost_function(
-    x, start_pose, target_pose, timesteps=100, w_collision=5.0, w_trajdist=1.0,
+    x,
+    start_pose,
+    target_pose,
+    timesteps=100,
+    w_collision=5.0,
+    w_self_collision=5.0,
+    w_trajdist=1.0,
+    use_ee_for_traj_dist=False,
 ):
     batch = x.shape[0]
     knots = torch.cat(
@@ -248,13 +258,37 @@ def batch_cost_function(
     # we can then sums up the collision prob across timesteps
     collision_prob = collision_prob.sum(1)
 
+    self_collision_prob = self_collision_predictor(traj)
+    # we can then sums up the collision prob across timesteps
+    self_collision_prob = self_collision_prob.sum(1).squeeze(1)
+
     # compute piece-wise linear distance
-    traj_dist = torch.linalg.norm(
-        traj_of_end_effector[:, 1:, :] - traj_of_end_effector[:, :-1, :], dim=2
-    ).sum(1)
+    if use_ee_for_traj_dist:
+        traj_dist = torch.linalg.norm(
+            traj_of_end_effector[:, 1:, :] - traj_of_end_effector[:, :-1, :], dim=2
+        ).sum(1)
+    else:
+        # xs shape is [n_joints, batch, timesteps, 3]
+        _xs_all_joints = xs_all_joints.reshape(
+            xs_all_joints.shape[0],
+            _original_shape[0],
+            _original_shape[1],
+            xs_all_joints.shape[-1],
+        )
+        traj_dist = (
+            torch.linalg.norm(
+                _xs_all_joints[:, :, 1:, :] - _xs_all_joints[:, :, :-1, :], dim=3
+            )
+            .sum(0)
+            .sum(-1)
+        )
 
     # the following should now be in 1d shape of [batch]
-    cost = w_collision * collision_prob + w_trajdist * traj_dist
+    cost = (
+        w_collision * collision_prob
+        + w_self_collision * self_collision_prob
+        + w_trajdist * traj_dist
+    )
 
     return (
         cost,
@@ -371,6 +405,10 @@ if __name__ == "__main__":
         try:
             occmap = continuous_occupancy_map.load_trained_model(scene.weight_path)
             occmap.to(device)
+            self_collision_predictor = continuous_self_collision_pred.load_trained_model(
+                robot.self_collision_model_weight_path
+            )
+            self_collision_predictor.to(device)
         except FileNotFoundError as e:
             print(
                 f"\nERROR: File not found at {scene.weight_path}."
