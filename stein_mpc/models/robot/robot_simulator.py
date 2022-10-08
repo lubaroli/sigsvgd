@@ -79,6 +79,14 @@ class Robot:
             )
 
     @property
+    def self_collision_model_weight_path(self):
+        return (
+            get_project_root()
+            / "robodata"
+            / f"selfCollisionModel_{self.__class__.__name__}.pkl"
+        )
+
+    @property
     def dof(self):
         return len(self.target_joint_names)
 
@@ -90,8 +98,10 @@ class Robot:
     def set_qs(
         self,
         qs: Union[ConfigurationSpaceType, Iterable[float]],
-        joint_indexes: List[int],
+        joint_indexes: List[int] = None,
     ):
+        if joint_indexes is None:
+            joint_indexes = self.joint_name_to_indexes(self.target_joint_names)
         pu.set_joint_positions(self.pyb_robot_id, joint_indexes, qs)
 
     def ee_xs_to_qll_qs(
@@ -215,7 +225,7 @@ class Robot:
         use_aabb=False,
         cache=False,
         max_distance=pu.MAX_DISTANCE,
-        check_joint_limits=False,
+        check_joint_limits=True,
         **kwargs,
     ):
         if custom_limits is None:
@@ -228,8 +238,8 @@ class Robot:
             obstacles = list()
 
         joint_indexes = self.joint_name_to_indexes(self.target_joint_names)
-        if self_collisions is None:
-            check_link_pairs = None
+        if not self_collisions:
+            check_link_pairs = []
         else:
             check_link_pairs = pu.get_self_link_pairs(
                 self.pyb_robot_id, joint_indexes, disabled_collisions

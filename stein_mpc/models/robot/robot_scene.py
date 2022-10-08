@@ -381,6 +381,7 @@ class RobotScene:
 
             else:
                 raise NotImplementedError(str(obj))
+        return list(self.added_bodies)
 
     def play(
         self,
