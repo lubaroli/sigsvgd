@@ -4,6 +4,7 @@ import time
 import pybullet as p
 
 from stein_mpc.models.robot import robot_scene
+from stein_mpc.models.robot.robot_simulator import PandaRobot
 from stein_mpc.utils.helper import get_project_root
 
 parser = argparse.ArgumentParser()
@@ -21,31 +22,6 @@ parser.add_argument("-n", "--num-solution-to-vis", default=100, type=int)
 
 if __name__ == "__main__":
     project_path = get_project_root()
-    urdf_path = project_path.joinpath("robot_resources/panda/urdf/panda.urdf")
-    # choose links to operate
-    target_link_names = [
-        # "panda_link0",
-        "panda_link1",
-        "panda_link2",
-        "panda_link3",
-        "panda_link4",
-        "panda_link5",
-        "panda_link6",
-        "panda_link7",
-        "panda_link8",
-        "panda_hand",
-    ]
-    target_joint_names = [
-        "panda_joint1",
-        "panda_joint2",
-        "panda_joint3",
-        "panda_joint4",
-        "panda_joint5",
-        "panda_joint6",
-        "panda_joint7",
-        # "panda_joint8",
-        # "panda_hand_joint",
-    ]
 
     args = parser.parse_args()
 
@@ -53,23 +29,19 @@ if __name__ == "__main__":
         args.tags_to_vis = list(robot_scene.tag_names)
     else:
         args.tags_to_vis = args.tags_to_vis.split(",")
-
     print("\n\n")
 
+    robot = PandaRobot(
+        device="cpu",
+        # p_client=p.DIRECT,
+        p_client=p.GUI,
+    )
     for tag_name in args.tags_to_vis:
         print("=" * 40)
 
-        scene = robot_scene.RobotScene(tag_name=tag_name)
+        scene = robot_scene.RobotScene(robot=robot, tag_name=tag_name)
         print(f"Scene: {tag_name}\n")
 
-        robot = scene.build_robot(
-            urdf_path=str(urdf_path),
-            target_link_names=target_link_names,
-            end_effector_link_name="panda_hand",
-            device="cpu",
-            # p_client=p.DIRECT,
-            p_client=p.GUI,
-        )
         scene.build_scene()
         for i, (request_fn, traj_fn) in enumerate(
             zip(scene.request_paths, scene.trajectory_paths)
@@ -92,7 +64,7 @@ if __name__ == "__main__":
             )
             scene.play(
                 traj,
-                target_joint_names,
+                robot.target_joint_names,
                 interpolate_step=args.interpolate_step,
                 delay_between_interpolated_joint=args.delay_between_interpolated_joint,
                 delay_between_joint=args.delay_between_joint,
@@ -104,4 +76,4 @@ if __name__ == "__main__":
         time.sleep(args.delay_between_scene)
 
         scene.clear()
-        robot.destroy()
+    robot.destroy()

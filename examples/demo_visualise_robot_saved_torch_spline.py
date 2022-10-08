@@ -9,6 +9,7 @@ from torchcubicspline import NaturalCubicSpline, natural_cubic_spline_coeffs
 
 from stein_mpc.models.robot import robot_scene
 from stein_mpc.models.robot.robot_scene import Trajectory, JointState
+from stein_mpc.models.robot.robot_simulator import PandaRobot
 from stein_mpc.utils.helper import get_project_root
 
 parser = argparse.ArgumentParser()
@@ -37,46 +38,22 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     project_path = get_project_root()
-    urdf_path = project_path.joinpath("robot_resources/panda/urdf/panda.urdf")
-    # choose links to operate
-    target_link_names = [
-        # "panda_link0",
-        "panda_link1",
-        "panda_link2",
-        "panda_link3",
-        "panda_link4",
-        "panda_link5",
-        "panda_link6",
-        "panda_link7",
-        "panda_link8",
-        "panda_hand",
-    ]
-    target_joint_names = [
-        "panda_joint1",
-        "panda_joint2",
-        "panda_joint3",
-        "panda_joint4",
-        "panda_joint5",
-        "panda_joint6",
-        "panda_joint7",
-        # "panda_joint8",
-        # "panda_hand_joint",
-    ]
 
     folder = Path(args.data_folder)
     tag_name = folder.name.split("-")[1] + "_panda"
 
-    scene = robot_scene.RobotScene(tag_name=tag_name)
-    print(f"Scene: {tag_name}\n")
-    robot = scene.build_robot(
-        urdf_path=str(urdf_path),
-        target_link_names=target_link_names,
-        end_effector_link_name="panda_hand",
+    robot = PandaRobot(
         device="cpu",
         # p_client=p.DIRECT,
         p_client=p.GUI,
     )
-    scene.build_scene()
+    scene = robot_scene.RobotScene(robot=robot, tag_name=tag_name)
+    print(f"Scene: {tag_name}\n")
+
+    print(robot.get_joints_limits())
+    raiesnt
+
+    rand_q = robot.get_joints_limits()
 
     subfolders = list(folder.glob("*"))
     i = -1

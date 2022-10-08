@@ -1,39 +1,14 @@
-import os
-
-THIS_DIR = os.path.dirname(os.path.realpath(__file__))
-
-import torch
 import numpy as np
-
 import plotly.graph_objects as go
+import torch
 
-from stein_mpc.models.robot import robot_simulator
 from stein_mpc.models.robot import robot_visualiser
+from stein_mpc.models.robot.robot_simulator import PandaRobot
 
-urdf_path = f"{THIS_DIR}/../robot_resources/panda/urdf/panda.urdf"
-
-target_link_names = [
-    # "panda_link0",
-    "panda_link1",
-    "panda_link2",
-    "panda_link3",
-    "panda_link4",
-    "panda_link5",
-    "panda_link6",
-    "panda_link7",
-    "panda_link8",
-    "panda_hand",
-]
-
-robot = arm_simulator.Robot(
-    urdf_path=urdf_path,
-    target_link_names=target_link_names,
-    end_effector_link_name="panda_hand",
-)
-
+robot = PandaRobot()
 robot.print_info()
 
-robot_visualiser = arm_visualiser.RobotVisualiser(robot)
+robot_visualiser = robot_visualiser.RobotVisualiser(robot)
 
 ###########################################################
 

@@ -5,47 +5,28 @@ import numpy as np
 import torch
 import tqdm
 
-from stein_mpc.models.robot import robot_simulator
+from stein_mpc.models.robot import robot_simulator, robot_scene
 from stein_mpc.models.robot import robot_visualiser
+from stein_mpc.models.robot.robot_simulator import PandaRobot
 
 THIS_DIR = os.path.dirname(os.path.realpath(__file__))
 
 
 ############################################################
 
-urdf_path = f"{THIS_DIR}/../robot_resources/panda/urdf/panda.urdf"
 
-target_link_names = [
-    # "panda_link0",
-    "panda_link1",
-    "panda_link2",
-    "panda_link3",
-    "panda_link4",
-    "panda_link5",
-    "panda_link6",
-    "panda_link7",
-    "panda_link8",
-    "panda_hand",
-]
-
-robot = arm_simulator.Robot(
-    urdf_path=urdf_path,
-    target_link_names=target_link_names,
-    end_effector_link_name="panda_hand",
-)
-
+robot = PandaRobot()
 robot.print_info()
+scene = robot_scene.RobotScene(robot, robot_scene.tag_names[0])
 
-robot_visualiser = arm_visualiser.RobotVisualiser(robot)
+robot_visualiser = robot_visualiser.RobotVisualiser(robot)
 
 ############################################################
 # load NN model and display prob
 
 from stein_mpc.models.robot_learning import continuous_occupancy_map
 
-occmap = continuous_occupancy_map.load_trained_model(
-    f"{THIS_DIR}/../robodata/001_continuous-occmap-weight.ckpt"
-)
+occmap = continuous_occupancy_map.load_trained_model(scene.weight_path)
 
 ############################################################
 
@@ -64,16 +45,17 @@ torch.manual_seed(1)
 limit_lowers, limit_uppers = robot.get_joints_limits()
 
 
-q_initial = torch.rand(9) * (limit_uppers - limit_lowers) + limit_lowers
+q_initial = torch.rand(robot.dof) * (limit_uppers - limit_lowers) + limit_lowers
 q_initial[1] = 0
 q_initial[2] = 0.5
-q_target = torch.rand(9) * (limit_uppers - limit_lowers) + limit_lowers
+q_target = torch.rand(robot.dof) * (limit_uppers - limit_lowers) + limit_lowers
 q_target[1] = 0.25
 
 num_knots_per_traj = 5
 
 sample_knots = (
-    torch.rand(num_knots_per_traj, 9) * (limit_uppers - limit_lowers) + limit_lowers
+    torch.rand(num_knots_per_traj, robot.dof) * (limit_uppers - limit_lowers)
+    + limit_lowers
 )
 
 

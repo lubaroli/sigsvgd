@@ -1,18 +1,18 @@
 import os
-from pathlib import Path
 import time
+from pathlib import Path
 
 import numpy
-import sigkernel
 import torch
-from stein_mpc.inference import SVGD
-from stein_mpc.models.robot import robot_simulator, robot_visualiser
-from stein_mpc.utils.helper import generate_seeds, get_local_storage_path, set_seed
 from torch.autograd import grad as ag
 
-THIS_DIR = os.path.dirname(os.path.realpath(__file__))
+import sigkernel
+from stein_mpc.inference import SVGD
+from stein_mpc.models.robot import robot_visualiser, robot_scene
+from stein_mpc.models.robot.robot_simulator import PandaRobot
+from stein_mpc.utils.helper import generate_seeds, set_seed
 
-urdf_path = f"{THIS_DIR}/../robot_resources/panda/urdf/panda.urdf"
+THIS_DIR = os.path.dirname(os.path.realpath(__file__))
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -26,46 +26,24 @@ def color_generator():
 
 ############################################################
 
-# the link to operates
-target_link_names = [
-    # "panda_link0",
-    "panda_link1",
-    "panda_link2",
-    "panda_link3",
-    "panda_link4",
-    "panda_link5",
-    "panda_link6",
-    "panda_link7",
-    "panda_link8",
-    "panda_hand",
-]
-
-# constructing the robot arm as a simulator
-robot = arm_simulator.Robot(
-    urdf_path=urdf_path,
-    target_link_names=target_link_names,
-    end_effector_link_name="panda_hand",
-    device=device,
-)
-# robot.print_info()
+robot = PandaRobot(device=device)
+scene = robot_scene.RobotScene(robot, robot_scene.tag_names[0])
 
 # construct a visualiser for the robot for plotting.
-robot_visualiser = arm_visualiser.RobotVisualiser(robot)
+robot_visualiser = robot_visualiser.RobotVisualiser(robot)
 
 ############################################################
 # load NN model and display prob
 
 from stein_mpc.models.robot_learning import continuous_occupancy_map
 
-occupancy_map_wegiht_fname = f"{THIS_DIR}/../robodata/001_continuous-occmap-weight.ckpt"
-
 try:
-    occmap = continuous_occupancy_map.load_trained_model(occupancy_map_wegiht_fname)
+    occmap = continuous_occupancy_map.load_trained_model(scene.weight_path)
     occmap.to(device)
 except FileNotFoundError as e:
     print("\n")
     print(
-        f"ERROR: File not found at {occupancy_map_wegiht_fname}.\nHave you "
+        f"ERROR: File not found at {scene.weight_path}.\nHave you "
         f"downloaded the weight file via running 'Make'?"
     )
     print("\n")
@@ -287,17 +265,17 @@ def run_optimisation(method="pathsig"):
     limit_lowers, limit_uppers = robot.get_joints_limits()
 
     # defining our initial and target joints configurations
-    q_initial = torch.rand(9) * (limit_uppers - limit_lowers) + limit_lowers
+    q_initial = torch.rand(robot.dof) * (limit_uppers - limit_lowers) + limit_lowers
     q_initial[1] = 0
     q_initial[2] = 0.5
-    q_target = torch.rand(9) * (limit_uppers - limit_lowers) + limit_lowers
+    q_target = torch.rand(robot.dof) * (limit_uppers - limit_lowers) + limit_lowers
     q_target[1] = 0.25
 
     ####################################################
     q_initial = q_initial.to(device)
     q_target = q_target.to(device)
 
-    batch, length, channels = 6, 5, 9
+    batch, length, channels = 6, 5, robot.dof
     x = (
         torch.rand(batch, length - 2, channels) * (limit_uppers - limit_lowers)
         + limit_lowers

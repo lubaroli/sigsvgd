@@ -3,15 +3,17 @@ from pathlib import Path
 
 import numpy
 import torch
-import yaml
-from stein_mpc.inference import SVGD
-from stein_mpc.kernels import SignatureKernel, GaussianKernel
-from stein_mpc.models.robot import robot_simulator, robot_visualiser
-from stein_mpc.models.robot_learning import continuous_occupancy_map
-from stein_mpc.utils.helper import generate_seeds, get_project_root, set_seed
-from stein_mpc.utils.scheduler import CosineScheduler, FactorScheduler
 from torch.autograd import grad as ag
 from torchcubicspline import NaturalCubicSpline, natural_cubic_spline_coeffs
+
+from stein_mpc.inference import SVGD
+from stein_mpc.kernels import SignatureKernel, GaussianKernel
+from stein_mpc.models.robot import robot_visualiser, robot_scene
+from stein_mpc.models.robot.robot_scene import PathRequest
+from stein_mpc.models.robot.robot_simulator import PandaRobot
+from stein_mpc.models.robot_learning import continuous_occupancy_map
+from stein_mpc.utils.helper import generate_seeds, get_project_root, set_seed
+from stein_mpc.utils.scheduler import CosineScheduler
 
 
 class ScoreEstimator:
@@ -195,18 +197,18 @@ def plot_callback(x, q_initial, q_target):
     INDEX += 1
 
 
-def load_request(problem, req_num):
-    project_path = get_project_root()
-    req_path = project_path.joinpath(
-        f"robodata/{problem}_panda/request{req_num:04d}.yaml"
-    )
-    with req_path.open() as f:
-        request = yaml.load(f, yaml.FullLoader)
-    q_start = request["start_state"]["joint_state"]["position"]
-    target_dict_pairs = request["goal_constraints"][0]["joint_constraints"]
-    q_target = [target_dict_pairs[i]["position"] for i in range(len(target_dict_pairs))]
-    q_target.extend(q_start[-2:])
-    return torch.as_tensor(q_start), torch.as_tensor(q_target)
+# def load_request(problem, req_num):
+#     project_path = get_project_root()
+#     req_path = project_path.joinpath(
+#         f"robodata/{problem}/request{req_num:04d}.yaml"
+#     )
+#     with req_path.open() as f:
+#         request = yaml.load(f, yaml.FullLoader)
+#     q_start = request["start_state"]["joint_state"]["position"]
+#     target_dict_pairs = request["goal_constraints"][0]["joint_constraints"]
+#     q_target = [target_dict_pairs[i]["position"] for i in range(len(target_dict_pairs))]
+#     q_target.extend(q_start[-2:])
+#     return torch.as_tensor(q_start), torch.as_tensor(q_target)
 
 
 def create_body_points(x, n_pts=10):
@@ -361,73 +363,49 @@ def run_optimisation(
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
     project_path = get_project_root()
-    urdf_path = project_path.joinpath("robot_resources/panda/urdf/panda.urdf")
-    problems = [
-        "bookshelf_small",
-        "bookshelf_tall",
-        "bookshelf_thin",
-        "box",
-        "cage",
-        "table_bars",
-        "table_pick",
-        "table_under_pick",
-    ]
+    robot = PandaRobot(device=device,)
+
+    problems = list(robot_scene.tag_names)
     for problem in problems:
-        occmap_fname = project_path.joinpath(
-            f"robodata/{problem}_panda-scene0001_continuous-occmap-weight.ckpt"
-        )
+        scene = robot_scene.RobotScene(robot, problem)
         try:
-            occmap = continuous_occupancy_map.load_trained_model(occmap_fname)
+            occmap = continuous_occupancy_map.load_trained_model(scene.weight_path)
             occmap.to(device)
         except FileNotFoundError as e:
             print(
-                f"\nERROR: File not found at {occmap_fname}."
+                f"\nERROR: File not found at {scene.weight_path}."
                 f"\nHave you downloaded the weight file via running 'Make'?\n"
             )
             raise e
 
-        # choose links to operate
-        target_link_names = [
-            # "panda_link0",
-            "panda_link1",
-            "panda_link2",
-            "panda_link3",
-            "panda_link4",
-            "panda_link5",
-            "panda_link6",
-            "panda_link7",
-            "panda_link8",
-            "panda_hand",
-        ]
-
         # construct the robot arm as a simulator
-        robot = arm_simulator.Robot(
-            urdf_path=str(urdf_path),
-            target_link_names=target_link_names,
-            end_effector_link_name="panda_hand",
-            device=device,
-        )
 
         # construct a visualiser for the robot for plotting
-        robot_visualiser = arm_visualiser.RobotVisualiser(robot)
+        robot_visualiser = robot_visualiser.RobotVisualiser(robot)
 
         # ========== Experiment Setup ==========
         print("\n=== Start of robot arm experiment ===")
         episodes = 5
         n_iter = 500
-        batch, length, channels = 15, 5, 9
+        batch, length, channels = 15, 5, robot.dof
         ymd_time = time.strftime("%Y%m%d-%H%M%S")
         seeds = generate_seeds(episodes)
         PLOT_EVERY = 50
 
         methods = ["svgd", "sgd", "pathsig"]
-        requests = [
-            torch.randint(0 + 25 * i, 24 + 25 * i, (1,)).item() for i in range(4)
-        ]
-        requests = [1]
-        for req in requests:
-            print(f"=== Scene 1 of {problem} problem with request {req} ===")
-            q_start, q_target = load_request(problem, req)
+        # requests = [
+        #     torch.randint(0 + 25 * i, 24 + 25 * i, (1,)).item() for i in range(4)
+        # ]
+        # requests = [1]
+
+        for req_i, req_path in enumerate(scene.request_paths):
+            req = PathRequest.from_yaml(req_path)
+
+            print(f"=== Scene 1 of {problem} problem with request {req_i} ===")
+            print(f"{req}\n")
+
+            q_start = torch.as_tensor(req.start_state.get(robot.target_joint_names))
+            q_target = torch.as_tensor(req.target_state.get(robot.target_joint_names))
             for ep_num, seed in enumerate(seeds):
                 for method in methods:
                     set_seed(seed)
@@ -436,7 +414,7 @@ if __name__ == "__main__":
                     )
                     INDEX = 0
                     experiment_path = Path(
-                        f"data/local/robot-{problem}-{ymd_time}/{req}-{seed}/{method}"
+                        f"data/local/robot-{problem}-{ymd_time}/{req_i}-{seed}/{method}"
                     )
                     plot_path = experiment_path / "plots"
                     if not plot_path.exists():

@@ -11,7 +11,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("tagname", nargs="?", default=robot_scene.tag_names[0])
 args = parser.parse_args()
 
-scene = robot_scene.RobotScene(args.tagname)
+scene = robot_scene.RobotScene(None, args.tagname)
 
 with open(scene.dataset_path) as f:
     data = np.array([list(map(float, l)) for l in csv.reader(f)])
@@ -44,7 +44,6 @@ fig.show()
 from stein_mpc.models.robot_learning import continuous_occupancy_map
 
 net = continuous_occupancy_map.load_trained_model(scene.weight_path)
-
 fig = continuous_occupancy_map.visualise_model_pred(net, prob_threshold=0.95)
 
 fig.show()

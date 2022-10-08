@@ -1,65 +1,43 @@
-import csv
-import os
-
 import numpy as np
-import plotly.graph_objects as go
 import torch
 
-from stein_mpc.models.robot import robot_simulator
-from stein_mpc.models.robot import robot_visualiser
+from stein_mpc.models.robot import robot_visualiser, robot_scene
+from stein_mpc.models.robot.robot_simulator import PandaRobot
+from stein_mpc.models.robot_learning import continuous_occupancy_map
+from stein_mpc.utils.helper import get_project_root
 
-THIS_DIR = os.path.dirname(os.path.realpath(__file__))
+probject_root = get_project_root()
 
-
-############################################################
-
-urdf_path = f"{THIS_DIR}/../robot_resources/panda/urdf/panda.urdf"
-
-target_link_names = [
-    # "panda_link0",
-    "panda_link1",
-    "panda_link2",
-    "panda_link3",
-    "panda_link4",
-    "panda_link5",
-    "panda_link6",
-    "panda_link7",
-    "panda_link8",
-    "panda_hand",
-]
-
-robot = arm_simulator.Robot(
-    urdf_path=urdf_path,
-    target_link_names=target_link_names,
-    end_effector_link_name="panda_hand",
-)
-
+robot = PandaRobot()
 robot.print_info()
 
-robot_visualiser = arm_visualiser.RobotVisualiser(robot)
-
+robot_visualiser = robot_visualiser.RobotVisualiser(robot)
 
 ############################################################
 # load NN model and display prob
 
-from stein_mpc.models.robot_learning import continuous_occupancy_map
+scene = robot_scene.RobotScene(robot, robot_scene.tag_names[0])
 
-occmap = continuous_occupancy_map.load_trained_model(
-    f"{THIS_DIR}/../robodata/001_continuous-occmap-weight.ckpt"
-)
+occmap = continuous_occupancy_map.load_trained_model(scene.weight_path)
 
 fig = continuous_occupancy_map.visualise_model_pred(
     occmap, prob_threshold=0.8, marker_showscale=False, marker_colorscale="viridis"
 )
 
 ############################################################
-qs = torch.Tensor(
-    [[0, 2, -np.pi / 2, np.pi / 4, np.pi / 2, np.pi / 2, np.pi / 2, np.pi / 2, 0],]
-)
+target_ee = torch.Tensor([0, 1.5, 0.5]).unsqueeze(0)
+qs = torch.Tensor(robot.ee_xs_to_qs(target_ee))
+
 base_xs = robot.qs_to_joints_xs(qs)[0, :]
 fig.add_traces(
     robot_visualiser.plot_xs(
         base_xs, color="red", name="fixed base", marker_symbol="x", marker_size=10,
+    )
+)
+ee_xs = robot.qs_to_joints_xs(qs)[-1, :]
+fig.add_traces(
+    robot_visualiser.plot_xs(
+        ee_xs, color="red", name="ee", marker_symbol="x", marker_size=10,
     )
 )
 ############################################################
@@ -69,14 +47,13 @@ limit_lowers, limit_uppers = robot.get_joints_limits()
 
 import torch.optim as optim
 
-
 print("\n\n")
 
-torch.manual_seed(0)
+torch.manual_seed(123)
 
-batch_size = 5
+# batch_size = 5
 
-qs = torch.rand(batch_size, 9) * (limit_uppers - limit_lowers) + limit_lowers
+
 qs.requires_grad_()
 optimizer = optim.Adam([qs], lr=5e-2)
 
@@ -85,6 +62,7 @@ for i in range(20):
 
     optimizer.zero_grad()
 
+    print(qs)
     cost = occmap(robot.qs_to_joints_xs(qs))
 
     print(f"===== step {i} =====")
@@ -111,6 +89,5 @@ fig.add_traces(
         qs.detach(), highlight_end_effector=True, color="purple", name="final arm"
     )
 )
-
 
 fig.show()

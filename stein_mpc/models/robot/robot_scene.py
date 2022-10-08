@@ -1,20 +1,18 @@
 import glob
 import time
-from collections import namedtuple
 from dataclasses import dataclass
 from functools import cached_property
 from os import path
 from pathlib import Path
 from typing import List
 
-import yaml
 import pybullet as p
 import pybullet_tools.utils as pu
+import yaml
 from scipy.interpolate import interp1d
-import numpy as np
-from stein_mpc.utils.helper import get_project_root
 
 from stein_mpc.models.robot.robot_simulator import Robot
+from stein_mpc.utils.helper import get_project_root
 
 this_directory = Path(path.abspath(path.dirname(__file__)))
 
@@ -256,33 +254,10 @@ def interpolate_trajectory(start, target):
 
 
 class RobotScene:
-    def __init__(self, tag_name: str):
-        self.robot = None
+    def __init__(self, robot: Robot, tag_name: str):
+        self.robot = robot
         self.tag_name = tag_name
         self.added_bodies = []
-
-    def build_robot(
-        self,
-        urdf_path: str,
-        target_link_names: List[str],
-        end_effector_link_name: str,
-        device=None,
-        p_client=p.DIRECT,
-    ) -> Robot:
-
-        with open(self.config_path, "r") as f:
-            yamlobj = yaml.safe_load(f)
-        self.robot = Robot(
-            urdf_path=urdf_path,
-            target_link_names=target_link_names,
-            end_effector_link_name=end_effector_link_name,
-            # start_position=self.robot_base_offset.position,
-            # start_orientation=self.robot_base_offset.orientation,
-            device=device,
-            p_client=p_client,
-            include_plane=False,
-        )
-        return self.robot
 
     @cached_property
     def config_path(self):
