@@ -8,7 +8,7 @@ import torch
 from stein_mpc.models.robot import robot_scene
 
 parser = argparse.ArgumentParser()
-parser.add_argument("tagname", nargs='?', default=robot_scene.tag_names[0])
+parser.add_argument("tagname", nargs="?", default=robot_scene.tag_names[0])
 args = parser.parse_args()
 
 scene = robot_scene.RobotScene(args.tagname)

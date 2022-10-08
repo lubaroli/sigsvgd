@@ -293,8 +293,7 @@ class RobotScene:
         with open(self.config_path, "r") as f:
             yamlobj = yaml.safe_load(f)
         return Pose(
-            yamlobj["base_offset"]["position"],
-            yamlobj["base_offset"]["orientation"],
+            yamlobj["base_offset"]["position"], yamlobj["base_offset"]["orientation"],
         )
 
     @cached_property

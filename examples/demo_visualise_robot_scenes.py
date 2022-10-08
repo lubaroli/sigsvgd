@@ -72,7 +72,7 @@ if __name__ == "__main__":
         )
         scene.build_scene()
         for i, (request_fn, traj_fn) in enumerate(
-                zip(scene.request_paths, scene.trajectory_paths)
+            zip(scene.request_paths, scene.trajectory_paths)
         ):
             if i >= args.num_solution_to_vis:
                 break
@@ -88,7 +88,7 @@ if __name__ == "__main__":
 
             tid = pu.add_text(
                 f"{tag_name}: traj {i + 1} / {min(len(scene), args.num_solution_to_vis)}",
-                position=[0, 0, 1.5]
+                position=[0, 0, 1.5],
             )
             scene.play(
                 traj,
