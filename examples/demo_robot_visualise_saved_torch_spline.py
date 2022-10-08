@@ -8,7 +8,7 @@ import torch
 from torchcubicspline import NaturalCubicSpline, natural_cubic_spline_coeffs
 
 from stein_mpc.models.robot import robot_scene
-from stein_mpc.models.robot.robot_scene import Trajectory, JointState
+from stein_mpc.models.robot.robot_scene import Trajectory, JointState, PathRequest
 from stein_mpc.models.robot.robot_simulator import PandaRobot
 from stein_mpc.utils.helper import get_project_root
 
@@ -40,7 +40,7 @@ if __name__ == "__main__":
     project_path = get_project_root()
 
     folder = Path(args.data_folder)
-    tag_name = folder.name.split("-")[1] + "_panda"
+    tag_name = folder.name.split("-")[1]  # + "_panda"
 
     robot = PandaRobot(
         device="cpu",
@@ -59,18 +59,40 @@ if __name__ == "__main__":
     for subfolder in subfolders:
         if subfolder.is_dir():
             i += 1
+
+            req_i = int(subfolder.name.split("-")[0])
+            req = PathRequest.from_yaml(scene.request_paths[req_i])
+            q_initial = torch.as_tensor(req.start_state.get(robot.target_joint_names))
+            q_target = torch.as_tensor(req.target_state.get(robot.target_joint_names))
+
+            gt_traj = robot_scene.Trajectory.from_yaml(scene.trajectory_paths[req_i])
+
             for kernel_method in subfolder.glob("*"):
                 _name = f"{folder.name.split('-')[1]} [{kernel_method.name}]"
                 print(_name)
+                if not (kernel_method / "data.pt").is_file():
+                    continue
 
                 data = torch.load(kernel_method / "data.pt", map_location="cpu")
                 trace = data["trace"]
 
-                traj = create_spline_trajectory(trace[-1, ...], timesteps=100)
+                x = trace[-1, ...]
+                knots = torch.cat(
+                    (
+                        q_initial.repeat(x.shape[0], 1, 1),
+                        x,
+                        q_target.repeat(x.shape[0], 1, 1),
+                    ),
+                    1,
+                )
+                print(gt_traj)
+                print(req)
+
+                traj = create_spline_trajectory(knots, timesteps=100)
 
                 for j in range(traj.shape[0]):
                     tid = pu.add_text(
-                        f"{_name}. Req: {i + 1}/{len(subfolders)}  Ep: {j + 1}/{traj.shape[0]}",
+                        f"{_name}. Req: {i + 1}/{len(subfolders)}  n: {j + 1}/{traj.shape[0]}",
                         position=[0, 0, 1.5],
                     )
                     scene.play(
@@ -83,6 +105,13 @@ if __name__ == "__main__":
                                 for t in range(traj.shape[1])
                             ]
                         ),
+                        robot.target_joint_names,
+                        interpolate_step=5,
+                        delay_between_interpolated_joint=args.delay_between_interpolated_joint,
+                        delay_between_joint=args.delay_between_joint,
+                    )
+                    scene.play(
+                        gt_traj,
                         robot.target_joint_names,
                         interpolate_step=5,
                         delay_between_interpolated_joint=args.delay_between_interpolated_joint,

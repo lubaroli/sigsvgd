@@ -4,6 +4,7 @@ import time
 import pybullet as p
 
 from stein_mpc.models.robot import robot_scene
+from stein_mpc.models.robot.robot_scene import Trajectory, JointState
 from stein_mpc.models.robot.robot_simulator import PandaRobot
 from stein_mpc.utils.helper import get_project_root
 
@@ -19,6 +20,13 @@ parser.add_argument(
     "-t", "--tags-to-vis", default="all", choices=["all"] + robot_scene.tag_names
 )
 parser.add_argument("-n", "--num-solution-to-vis", default=100, type=int)
+parser.add_argument(
+    "-r",
+    "--visualise-request",
+    help="visualise the request start and target directly, "
+    "instead of the example trajectory",
+    action="store_true",
+)
 
 if __name__ == "__main__":
     project_path = get_project_root()
@@ -51,7 +59,11 @@ if __name__ == "__main__":
 
             print("-" * 20)
             request = robot_scene.PathRequest.from_yaml(request_fn)
-            traj = robot_scene.Trajectory.from_yaml(traj_fn)
+
+            if args.visualise_request:
+                traj = Trajectory([request.start_state, request.target_state])
+            else:
+                traj = robot_scene.Trajectory.from_yaml(traj_fn)
 
             print(f"Path Request:\n{request}\n")
             print(f"Example Trajectory:\n{traj}\n")
