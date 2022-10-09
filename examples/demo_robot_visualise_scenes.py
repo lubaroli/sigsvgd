@@ -43,6 +43,7 @@ if __name__ == "__main__":
         device="cpu",
         # p_client=p.DIRECT,
         p_client=p.GUI,
+        include_plane=False,
     )
     for tag_name in args.tags_to_vis:
         print("=" * 40)
