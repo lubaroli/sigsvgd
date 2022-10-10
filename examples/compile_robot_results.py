@@ -1,66 +1,73 @@
 from pathlib import Path
+from tqdm import tqdm
 
 import pandas as pd
 import torch
 
 
 def compile_results(path):
-    svgd_costs = torch.tensor([])
-    svgd_episodes = 0
-    ps_costs = torch.tensor([])
-    ps_episodes = 0
-    sgd_costs = torch.tensor([])
-    sgd_episodes = 0
-
-    for folder in path.iterdir():
+    res = {}
+    for folder in tqdm(path.iterdir()):
         if folder.joinpath("svgd/data.pt").exists():
+            req = str(folder.name).split("-")[0]
+            if "SVGD_" + req not in res.keys():
+                res["SVGD_" + req] = {
+                    "costs": torch.tensor([]),
+                    "eps": 0,
+                }
             with folder.joinpath("svgd/data.pt") as f:
                 data = torch.load(f)
                 last_key = list(data.keys())[-2]
                 ep_cost = data[last_key]["loss"].cpu()
-                svgd_costs = torch.cat([svgd_costs, ep_cost.unsqueeze(0)])
-                svgd_episodes = svgd_episodes + 1
+                res["SVGD_" + req]["costs"] = torch.cat(
+                    [res["SVGD_" + req]["costs"], ep_cost.unsqueeze(0)]
+                )
+                res["SVGD_" + req]["eps"] += 1
 
         if folder.joinpath("pathsig/data.pt").exists():
+            req = str(folder.name).split("-")[0]
+            if "PathSig_" + req not in res.keys():
+                res["PathSig_" + req] = {
+                    "costs": torch.tensor([]),
+                    "eps": 0,
+                }
             with folder.joinpath("pathsig/data.pt") as f:
                 data = torch.load(f)
                 last_key = list(data.keys())[-2]
                 ep_cost = data[last_key]["loss"].cpu()
-                ps_costs = torch.cat([ps_costs, ep_cost.unsqueeze(0)])
-                ps_episodes = ps_episodes + 1
+                res["PathSig_" + req]["costs"] = torch.cat(
+                    [res["PathSig_" + req]["costs"], ep_cost.unsqueeze(0)]
+                )
+                res["PathSig_" + req]["eps"] += 1
 
         if folder.joinpath("sgd/data.pt").exists():
+            req = str(folder.name).split("-")[0]
+            if "SGD_" + req not in res.keys():
+                res["SGD_" + req] = {
+                    "costs": torch.tensor([]),
+                    "eps": 0,
+                }
             with folder.joinpath("sgd/data.pt") as f:
                 data = torch.load(f)
                 last_key = list(data.keys())[-2]
                 ep_cost = data[last_key]["loss"].cpu()
-                sgd_costs = torch.cat([sgd_costs, ep_cost.unsqueeze(0)])
-                sgd_episodes = sgd_episodes + 1
+                res["SGD_" + req]["costs"] = torch.cat(
+                    [res["SGD_" + req]["costs"], ep_cost.unsqueeze(0)]
+                )
+                res["SGD_" + req]["eps"] += 1
 
-    return {
-        "SVGD": {
-            "Cost - Min Avg": svgd_costs.min().mean().numpy().round(2),
-            "Cost - Avg": svgd_costs.mean().numpy().round(2),
-            "Cost - Std": svgd_costs.std().numpy().round(2),
-            "Episodes": svgd_episodes,
-        },
-        "Path Signature": {
-            "Cost - Min Avg": ps_costs.min().mean().numpy().round(2),
-            "Cost - Avg": ps_costs.mean().numpy().round(2),
-            "Cost - Std": ps_costs.std().numpy().round(2),
-            "Episodes": ps_episodes,
-        },
-        "SGD": {
-            "Cost - Min Avg": sgd_costs.min().mean().numpy().round(2),
-            "Cost - Avg": sgd_costs.mean().numpy().round(2),
-            "Cost - Std": sgd_costs.std().numpy().round(2),
-            "Episodes": sgd_episodes,
-        },
-    }
+    table = {}
+    for k in res.keys():
+        table[k] = {}
+        table[k]["Min Avg Cost"] = res[k]["costs"].min().mean().numpy().round(2)
+        table[k]["Cost Avg"] = res[k]["costs"].mean().numpy().round(2)
+        table[k]["Cost Std"] = res[k]["costs"].std().numpy().round(2)
+        table[k]["Episodes"] = res[k]["eps"]
+    return table
 
 
 if __name__ == "__main__":
-    path = Path("data/local/robot-table_bars-20220929-223010")
+    path = Path("data/local/robot-table_under_pick_panda-20221009-155150")
     results = compile_results(path)
     df = pd.DataFrame(data=results)
     df.to_markdown(buf=path / "results.md")

@@ -200,20 +200,6 @@ def plot_callback(x, q_initial, q_target):
     INDEX += 1
 
 
-# def load_request(problem, req_num):
-#     project_path = get_project_root()
-#     req_path = project_path.joinpath(
-#         f"robodata/{problem}/request{req_num:04d}.yaml"
-#     )
-#     with req_path.open() as f:
-#         request = yaml.load(f, yaml.FullLoader)
-#     q_start = request["start_state"]["joint_state"]["position"]
-#     target_dict_pairs = request["goal_constraints"][0]["joint_constraints"]
-#     q_target = [target_dict_pairs[i]["position"] for i in range(len(target_dict_pairs))]
-#     q_target.extend(q_start[-2:])
-#     return torch.as_tensor(q_start), torch.as_tensor(q_target)
-
-
 def create_body_points(x, n_pts=10):
     inter_pts = torch.arange(0, 1, 1 / n_pts)
     device = x.device
@@ -258,7 +244,7 @@ def batch_cost_function(
     # we can then sums up the collision prob across timesteps
     collision_prob = collision_prob.sum(1)
 
-    self_collision_prob = self_collision_predictor(traj)
+    self_collision_prob = self_collision_pred(traj)
     # we can then sums up the collision prob across timesteps
     self_collision_prob = self_collision_prob.sum(1).squeeze(1)
 
@@ -292,7 +278,14 @@ def batch_cost_function(
 
     return (
         cost,
-        {"knots": knots, "trajectories": traj, "ee_trajectories": traj_of_end_effector},
+        {
+            "knots": knots,
+            "trajectories": traj,
+            "costs_self_col": w_self_collision * self_collision_prob,
+            "costs_col": w_collision * collision_prob,
+            "costs_dist": w_trajdist * traj_dist,
+            "ee_trajectories": traj_of_end_effector,
+        },
     )
 
 
@@ -400,15 +393,16 @@ if __name__ == "__main__":
     robot = PandaRobot(device=device,)
 
     problems = list(robot_scene.tag_names)
+    problems = problems[-1:]
     for problem in problems:
         scene = robot_scene.RobotScene(robot, problem)
         try:
             occmap = continuous_occupancy_map.load_trained_model(scene.weight_path)
             occmap.to(device)
-            self_collision_predictor = continuous_self_collision_pred.load_trained_model(
+            self_collision_pred = continuous_self_collision_pred.load_trained_model(
                 robot.self_collision_model_weight_path
             )
-            self_collision_predictor.to(device)
+            self_collision_pred.to(device)
         except FileNotFoundError as e:
             print(
                 f"\nERROR: File not found at {scene.weight_path}."
@@ -423,20 +417,21 @@ if __name__ == "__main__":
 
         # ========== Experiment Setup ==========
         print("\n=== Start of robot arm experiment ===")
-        episodes = 5
+        n_episodes = 5
+        n_requests = 4
         n_iter = 500
         batch, length, channels = 15, 5, robot.dof
         ymd_time = time.strftime("%Y%m%d-%H%M%S")
-        seeds = generate_seeds(episodes)
-        PLOT_EVERY = 50
+        seeds = generate_seeds(n_episodes)
+        PLOT_EVERY = 500
 
         methods = ["svgd", "sgd", "pathsig"]
         # requests = [
         #     torch.randint(0 + 25 * i, 24 + 25 * i, (1,)).item() for i in range(4)
         # ]
-        # requests = [1]
-
-        for req_i, req_path in enumerate(scene.request_paths):
+        req_inds = numpy.random.permutation(len(scene.request_paths))[:n_requests]
+        req_paths = numpy.array(scene.request_paths)[req_inds]
+        for req_i, req_path in zip(req_inds, req_paths):
             req = PathRequest.from_yaml(req_path)
 
             print(f"=== Scene 1 of {problem} problem with request {req_i} ===")
