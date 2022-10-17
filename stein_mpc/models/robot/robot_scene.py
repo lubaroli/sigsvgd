@@ -4,14 +4,14 @@ from dataclasses import dataclass
 from functools import cached_property
 from os import path
 from pathlib import Path
-from typing import List
+from typing import List, Callable
 
 import pybullet as p
 import pybullet_tools.utils as pu
 import yaml
 from scipy.interpolate import interp1d
 
-from stein_mpc.models.robot.robot_simulator import Robot
+from stein_mpc.models.robot.robot_simulator import Robot, ConfigurationSpaceType
 from stein_mpc.utils.helper import get_project_root
 
 this_directory = Path(path.abspath(path.dirname(__file__)))
@@ -390,11 +390,12 @@ class RobotScene:
         interpolate_step: int = 50,
         delay_between_interpolated_joint: float = 0.02,
         delay_between_joint: float = 2.0,
+        callback: Callable[[ConfigurationSpaceType, int], None] = None,
     ):
         target_joint_indexes = self.robot.joint_name_to_indexes(target_joint_names)
 
         last_qs = None
-        for qs in trajectory.get(target_joint_names):
+        for i, qs in enumerate(trajectory.get(target_joint_names)):
             if last_qs is not None:
                 interp = interpolate_trajectory(last_qs, qs)
                 ts = np.linspace(0, 1, num=interpolate_step)
@@ -404,4 +405,6 @@ class RobotScene:
 
             last_qs = qs
             self.robot.set_qs(qs, target_joint_indexes)
+            if callback:
+                callback(np.array(qs), i)
             time.sleep(delay_between_joint)
