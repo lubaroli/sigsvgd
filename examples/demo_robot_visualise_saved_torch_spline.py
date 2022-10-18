@@ -1,5 +1,7 @@
 import argparse
+import sys
 import time
+from os import path
 from pathlib import Path
 
 import numpy as np
@@ -8,7 +10,6 @@ import pybullet_tools.utils as pu
 import torch
 from torchcubicspline import NaturalCubicSpline, natural_cubic_spline_coeffs
 
-from examples.script_planning_robot import create_body_points
 from stein_mpc.models.robot import robot_scene
 from stein_mpc.models.robot.robot_scene import Trajectory, JointState, PathRequest
 from stein_mpc.models.robot.robot_simulator import PandaRobot
@@ -18,6 +19,11 @@ from stein_mpc.models.robot_learning import (
 )
 from stein_mpc.utils.helper import get_project_root
 from stein_mpc.utils.updatable_mpl import UpdatableSequentialPlot
+
+this_directory = Path(path.abspath(path.dirname(__file__)))
+sys.path.insert(0, str(this_directory / ".."))
+
+from examples.script_planning_robot import create_body_points
 
 parser = argparse.ArgumentParser()
 parser.add_argument("data_folder", type=str)

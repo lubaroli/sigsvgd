@@ -148,7 +148,9 @@ def load_trained_model(weight_fname, map_location="cpu"):
         for k, v in weights["state_dict"].items():
             if k.startswith(_net_prefix_token):
                 _inner_weights[k[len(_net_prefix_token) :]] = v
-        net = ContinuousSelfCollisionPredictor(robot.dof)
+        net = ContinuousSelfCollisionPredictor(
+            n_dimension=weights["state_dict"]["net.layers.0.weight"].shape[1]
+        )
         net.load_state_dict(_inner_weights)
 
         return net
