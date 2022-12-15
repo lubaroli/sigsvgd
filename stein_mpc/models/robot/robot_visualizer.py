@@ -7,7 +7,7 @@ from plotly.basedatatypes import BaseTraceType
 from .robot_simulator import Robot, WorkSpaceType, ConfigurationSpaceType
 
 
-class RobotVisualiser:
+class RobotVisualizer:
     def __init__(self, robot: Robot):
         self.robot = robot
 

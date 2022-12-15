@@ -6,7 +6,7 @@ import torch
 import tqdm
 
 from stein_mpc.models.robot import robot_simulator, robot_scene
-from stein_mpc.models.robot import robot_visualiser
+from stein_mpc.models.robot import robot_visualizer
 from stein_mpc.models.robot.robot_simulator import PandaRobot
 
 THIS_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -19,7 +19,7 @@ robot = PandaRobot()
 robot.print_info()
 scene = robot_scene.RobotScene(robot, robot_scene.tag_names[0])
 
-robot_visualiser = robot_visualiser.RobotVisualiser(robot)
+robot_visualizer = robot_visualizer.RobotVisualizer(robot)
 
 ############################################################
 # load NN model and display prob
@@ -72,7 +72,7 @@ def plot_trajectory_from_knot(q_initial, q_target, knots, title="initial traject
     )
     for qs in traj:
         fig.add_traces(
-            robot_visualiser.plot_arms(
+            robot_visualizer.plot_arms(
                 qs.detach(),
                 highlight_end_effector=False,
                 showlegend=False,
@@ -82,7 +82,7 @@ def plot_trajectory_from_knot(q_initial, q_target, knots, title="initial traject
     # plot knots
     for qs in knots:
         fig.add_traces(
-            robot_visualiser.plot_arms(
+            robot_visualizer.plot_arms(
                 qs.detach(), highlight_end_effector=False, name="knot", color="magenta",
             )
         )
@@ -92,7 +92,7 @@ def plot_trajectory_from_knot(q_initial, q_target, knots, title="initial traject
         (q_target, "q_target", "cyan"),
     ]:
         fig.add_traces(
-            robot_visualiser.plot_arms(
+            robot_visualizer.plot_arms(
                 qs.detach(), highlight_end_effector=True, name=name, color=color,
             )
         )

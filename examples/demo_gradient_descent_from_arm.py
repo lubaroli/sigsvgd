@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from stein_mpc.models.robot import robot_visualiser, robot_scene
+from stein_mpc.models.robot import robot_scene, robot_visualizer
 from stein_mpc.models.robot.robot_simulator import PandaRobot
 from stein_mpc.models.robot_learning import continuous_occupancy_map
 from stein_mpc.utils.helper import get_project_root
@@ -11,7 +11,7 @@ probject_root = get_project_root()
 robot = PandaRobot()
 robot.print_info()
 
-robot_visualiser = robot_visualiser.RobotVisualiser(robot)
+robot_visualizer = robot_visualizer.RobotVisualizer(robot)
 
 ############################################################
 # load NN model and display prob
@@ -30,13 +30,13 @@ qs = torch.Tensor(robot.ee_xs_to_qs(target_ee))
 
 base_xs = robot.qs_to_joints_xs(qs)[0, :]
 fig.add_traces(
-    robot_visualiser.plot_xs(
+    robot_visualizer.plot_xs(
         base_xs, color="red", name="fixed base", marker_symbol="x", marker_size=10,
     )
 )
 ee_xs = robot.qs_to_joints_xs(qs)[-1, :]
 fig.add_traces(
-    robot_visualiser.plot_xs(
+    robot_visualizer.plot_xs(
         ee_xs, color="red", name="ee", marker_symbol="x", marker_size=10,
     )
 )
@@ -74,7 +74,7 @@ for i in range(20):
     print(f"qs-grad: {qs.grad}")
 
     fig.add_traces(
-        robot_visualiser.plot_arms(
+        robot_visualizer.plot_arms(
             qs.detach(), highlight_end_effector=True, showlegend=False
         )
     )
@@ -85,7 +85,7 @@ print(f"\n\n\n===== final =====")
 print(f"{qs.detach().numpy().squeeze()}")
 
 fig.add_traces(
-    robot_visualiser.plot_arms(
+    robot_visualizer.plot_arms(
         qs.detach(), highlight_end_effector=True, color="purple", name="final arm"
     )
 )

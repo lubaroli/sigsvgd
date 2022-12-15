@@ -2,13 +2,13 @@ import numpy as np
 import plotly.graph_objects as go
 import torch
 
-from stein_mpc.models.robot import robot_visualiser
+from stein_mpc.models.robot import robot_visualizer
 from stein_mpc.models.robot.robot_simulator import PandaRobot
 
 robot = PandaRobot()
 robot.print_info()
 
-robot_visualiser = robot_visualiser.RobotVisualiser(robot)
+robot_visualizer = robot_visualizer.RobotVisualizer(robot)
 
 ###########################################################
 
@@ -16,7 +16,7 @@ qs = torch.Tensor([[0, 0, 0, 0, np.pi / 2, np.pi / 2, np.pi / 2, np.pi / 2, 0],]
 layout = go.Layout(scene=dict(aspectmode="data"))
 
 go.Figure(
-    [*robot_visualiser.plot_arms(qs, highlight_end_effector=True)],
+    [*robot_visualizer.plot_arms(qs, highlight_end_effector=True)],
     layout=layout,
     layout_title="A robot arm",
 ).show()
@@ -38,8 +38,8 @@ _qs_from_ik = torch.Tensor(_qs_from_ik)
 
 go.Figure(
     [
-        *robot_visualiser.plot_arms(_qs_from_ik, highlight_end_effector=True),
-        *robot_visualiser.plot_xs(xs, name="target ik"),
+        *robot_visualizer.plot_arms(_qs_from_ik, highlight_end_effector=True),
+        *robot_visualizer.plot_xs(xs, name="target ik"),
     ],
     layout_title="A robot arm with a few random (infeasible) end-effector target for IK",
 ).show()
@@ -63,8 +63,8 @@ _qs_from_ik = torch.Tensor(_qs_from_ik)
 
 go.Figure(
     [
-        *robot_visualiser.plot_arms(_qs_from_ik, highlight_end_effector=True),
-        *robot_visualiser.plot_xs(xs, name="target ik"),
+        *robot_visualizer.plot_arms(_qs_from_ik, highlight_end_effector=True),
+        *robot_visualizer.plot_xs(xs, name="target ik"),
     ],
     layout_title="A robot arm with a cos curve for IK",
 ).show()

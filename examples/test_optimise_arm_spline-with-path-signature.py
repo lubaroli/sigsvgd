@@ -8,7 +8,7 @@ from torch.autograd import grad as ag
 
 import sigkernel
 from stein_mpc.inference import SVGD
-from stein_mpc.models.robot import robot_visualiser, robot_scene
+from stein_mpc.models.robot import robot_scene, robot_visualizer
 from stein_mpc.models.robot.robot_simulator import PandaRobot
 from stein_mpc.utils.helper import generate_seeds, set_seed
 
@@ -30,7 +30,7 @@ robot = PandaRobot(device=device)
 scene = robot_scene.RobotScene(robot, robot_scene.tag_names[0])
 
 # construct a visualiser for the robot for plotting.
-robot_visualiser = robot_visualiser.RobotVisualiser(robot)
+robot_visualizer = robot_visualizer.RobotVisualizer(robot)
 
 ############################################################
 # load NN model and display prob
@@ -104,7 +104,7 @@ def plot_all_trajectory_end_effector_from_knot(
         for i, color in zip(range(traj_of_end_effector.shape[0]), color_gen):
             # plot arm end-effector traj as lines
             fig.add_traces(
-                robot_visualiser.plot_xs(
+                robot_visualizer.plot_xs(
                     traj_of_end_effector[i, ...],
                     color=color,
                     showlegend=False,
@@ -114,7 +114,7 @@ def plot_all_trajectory_end_effector_from_knot(
             )
             # plot knot of the arm end effector
             fig.add_traces(
-                robot_visualiser.plot_xs(
+                robot_visualizer.plot_xs(
                     traj_of_knot[i, ...],
                     color=color,
                     showlegend=False,
@@ -129,7 +129,7 @@ def plot_all_trajectory_end_effector_from_knot(
             (q_target, "q_target", "cyan"),
         ]:
             fig.add_traces(
-                robot_visualiser.plot_arms(
+                robot_visualizer.plot_arms(
                     qs.detach(),
                     highlight_end_effector=True,
                     name=name,
