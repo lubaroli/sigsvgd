@@ -74,8 +74,8 @@ class SVGD:
         if self.log_prior is not None:
             X = X.detach().requires_grad_(True)
             log_prior_sum = self.log_prior(X).sum()
-            log_prior_grad = torch.autograd.grad(log_prior_sum, X)[0].detach()
-            score_func = score_func + log_prior_grad
+            log_prior_grad = torch.autograd.grad(log_prior_sum, X)[0]
+            score_func = score_func + log_prior_grad.detach().flatten(1)
             X.detach_()
 
         velocity = (k_xx @ score_func + grad_k) / X.shape[0]
@@ -84,7 +84,8 @@ class SVGD:
         iter_dict = {"k_xx": k_xx, "grad_k": grad_k, "loss": loss}
         iter_dict.update(kwargs)
         iter_dict = {
-            k: v.detach() if hasattr(v, "detach") else v for k, v in iter_dict.items()
+            k: v.detach().cpu() if hasattr(v, "detach") else v
+            for k, v in iter_dict.items()
         }
         return velocity, iter_dict
 
