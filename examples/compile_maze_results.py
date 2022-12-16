@@ -12,12 +12,16 @@ def compile_results(path):
     sv_steps = torch.tensor([])
 
     for folder in folders:
-        ps_data = torch.load(folder / "pathsig/data.pkl")
-        ps_costs = torch.cat([ps_costs, ps_data["costs"].cpu().sum().unsqueeze(0)], 0)
+        ps_data = torch.load(
+            folder / "pathsig/data.pkl", map_location=torch.device("cpu")
+        )
+        ps_costs = torch.cat([ps_costs, ps_data["costs"].sum().unsqueeze(0)], 0)
         ps_steps = torch.cat([ps_steps, torch.tensor([len(ps_data["costs"])])], 0)
 
-        sv_data = torch.load(folder / "svmpc/data.pkl")
-        sv_costs = torch.cat([sv_costs, sv_data["costs"].cpu().sum().unsqueeze(0)], 0)
+        sv_data = torch.load(
+            folder / "svmpc/data.pkl", map_location=torch.device("cpu")
+        )
+        sv_costs = torch.cat([sv_costs, sv_data["costs"].sum().unsqueeze(0)], 0)
         sv_steps = torch.cat([sv_steps, torch.tensor([len(sv_data["costs"])])], 0)
 
     return {

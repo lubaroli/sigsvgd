@@ -21,9 +21,9 @@ def compile_results(path):
                 for method in ["svmp", "sgd", "pathsig"]:
                     if exp_folder.joinpath(f"{method}_data.pt").exists():
                         with exp_folder.joinpath(f"{method}_data.pt") as f:
-                            data = torch.load(f)
+                            data = torch.load(f, map_location=torch.device("cpu"))
                             last_key = list(data.keys())[-2]
-                            ep_cost = data[last_key]["loss"].cpu()
+                            ep_cost = data[last_key]["loss"]
                             for result in ["best", "nll"]:
                                 k = (method, result)
                                 if k not in table.keys():
