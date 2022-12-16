@@ -42,7 +42,7 @@ class SVGD:
         else:
             X = X.detach().requires_grad_(True)
             k_xx = self.kernel(X, X.detach(), compute_grad=False)
-            grad_k = autograd.grad(k_xx.sum(), X)[0]
+            grad_k = autograd.grad(k_xx.sum(), X)[0].flatten(1)
         return k_xx.detach(), grad_k.detach()
 
     def _velocity(
@@ -56,7 +56,7 @@ class SVGD:
         if "k_xx" in kwargs and "grad_k" in kwargs:
             k_xx, grad_k = kwargs["k_xx"], kwargs["grad_k"].flatten(1)
         else:
-            k_xx, grad_k = self._compute_kernel(X.flatten(1), **kwargs)
+            k_xx, grad_k = self._compute_kernel(X, **kwargs)
 
         if grad_log_p is None:
             X = X.detach().requires_grad_(True)

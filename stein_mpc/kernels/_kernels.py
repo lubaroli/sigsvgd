@@ -100,6 +100,7 @@ class GaussianKernel(BaseKernel):
         """
         assert X.shape == Y.shape, "X and Y must have the same dimensions."
         X, Y = torch.atleast_2d((X, Y))
+        X, Y = X.flatten(1), Y.flatten(1)  # enforces 2-D tensors
         sq_dists = pw_dist_sq(X, Y)
         if h is None:
             h = self.get_bandwidth(sq_dists)
@@ -162,6 +163,8 @@ class ScaledGaussianKernel(BaseKernel):
             `K` is [batch, batch] and the shape of `d_K` is [batch, batch, dim].
         """
         assert X.shape == Y.shape, "X and Y must have the same dimensions."
+        X, Y = torch.atleast_2d((X, Y))
+        X, Y = X.flatten(1), Y.flatten(1)  # enforces 2-D tensors
         ctx = {"device": X.device, "dtype": X.dtype}
         if M is None:
             M = torch.eye(X.shape[-1], **ctx)
@@ -218,6 +221,8 @@ class IMQKernel(BaseKernel):
         **kwargs,
     ) -> kernel_output:
         assert X.shape == Y.shape, "X and Y must have the same dimensions."
+        X, Y = torch.atleast_2d((X, Y))
+        X, Y = X.flatten(1), Y.flatten(1)  # enforces 2-D tensors
 
         sq_dists = pw_dist_sq(X, Y)
         if h is None:
@@ -269,6 +274,8 @@ class ScaledIMQKernel(BaseKernel):
         **kwargs,
     ):
         assert X.shape == Y.shape, "X and Y must have the same dimensions."
+        X, Y = torch.atleast_2d((X, Y))
+        X, Y = X.flatten(1), Y.flatten(1)  # enforces 2-D tensors
         ctx = {"device": X.device, "dtype": X.dtype}
         if M is None:
             M = torch.eye(X.shape[-1], **ctx)
