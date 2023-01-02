@@ -38,7 +38,8 @@ class SVGD:
         if hasattr(self.kernel, "analytic_grad") and self.kernel.analytic_grad:
             # grad_k is batch x batch x dim
             k_xx, grad_k = self.kernel(X, X)
-            grad_k = grad_k.sum(1)  # aggregates gradient wrt to first input
+            # aggregates gradient wrt to first input
+            grad_k = grad_k.sum(0)  # TODO: need to check 0 is the correct dimension
         else:
             X = X.detach().requires_grad_(True)
             k_xx = self.kernel(X, X.detach(), compute_grad=False)
@@ -99,7 +100,7 @@ class SVGD:
         def closure():
             optimizer.zero_grad()
             X.grad, iter_dict = self._velocity(X, grad_log_p, **kwargs)
-            iter_dict["grad"] = X.grad
+            iter_dict["grad"] = X.grad.cpu()
             return iter_dict
 
         if isinstance(optimizer, torch.optim.Optimizer):
@@ -110,7 +111,7 @@ class SVGD:
                 # update sum of gradient's square
                 self.opt_inertia += grad ** 2
                 grad = grad / torch.sqrt(self.opt_inertia + 1e-12)
-            iter_dict["grad"] = grad
+            iter_dict["grad"] = grad.cpu()
             X = X - self.opt_args["lr"] * grad
         return X, iter_dict
 
@@ -139,19 +140,21 @@ class SVGD:
         else:
             iterator = range(n_steps)
 
-        X_seq = X.clone().unsqueeze(0)
+        data_dict["trace"] = X.clone().unsqueeze(0).cpu()
         for i in iterator:
             if score_estimator is not None:
                 X.requires_grad_(True)
                 grad_log_p, score_dict = score_estimator(X)
                 kwargs.update(score_dict)
             X, data_dict[i] = self.step(X, grad_log_p, optimizer, **kwargs)
-            X_seq = torch.cat([X_seq, X.detach().unsqueeze(0)], dim=0)
+            data_dict["trace"] = torch.cat(
+                [data_dict["trace"], X.detach().unsqueeze(0).cpu()], dim=0
+            )
             if debug:
                 iterator.set_postfix(loss=data_dict[i]["loss"].norm(), refresh=False)
             if callback_func is not None:
                 callback_func(X)
-        data_dict["trace"] = X_seq
+        particles[:] = X.detach()  # assign last X value to input in-place
         opt_state = optimizer.state_dict() if optimizer is not None else None
         return data_dict, opt_state
 

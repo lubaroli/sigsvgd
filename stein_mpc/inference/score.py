@@ -11,7 +11,7 @@ class PlanningEstimator:
         self.kernel = kernel
         self.cost_fn = cost_fn
         self.cost_fn_params = cost_fn_params
-        if not scheduler:
+        if scheduler is None:
             self.scheduler = lambda: 1
         else:
             self.scheduler = scheduler
@@ -38,8 +38,8 @@ class PlanningEstimator:
         cost, cost_dict = self.cost_fn(x, *self.cost_fn_params)
         # considering the likelihood is exp(-cost)
         grad_log_p = ag(-cost.sum(), x, retain_graph=True)[0]
-        k_xx, grad_k = self.kernel(x.flatten(1), x.flatten(1), compute_grad=True)
-        grad_k = grad_k.sum(1)  # aggregates gradient wrt to first input
+        k_xx, grad_k = self.kernel(x, x, compute_grad=True)
+        grad_k = grad_k.sum(0)  # aggregates gradient wrt to first input
         score_dict = {
             "k_xx": k_xx,
             "grad_k": self.scheduler() * grad_k,
@@ -52,7 +52,7 @@ class PlanningEstimator:
         cost, cost_dict = self.cost_fn(x, *self.cost_fn_params)
         # considering the likelihood is exp(-cost)
         grad_log_p = ag(-cost.sum(), x, retain_graph=True)[0]
-        k_xx = self.kernel(x.flatten(1), x.flatten(1), compute_grad=False)
+        k_xx = self.kernel(x, x, compute_grad=False)
         grad_k = ag(k_xx.sum(), x)[0]
         score_dict = {
             "k_xx": k_xx,
@@ -67,7 +67,7 @@ class PlanningEstimator:
         # considering the likelihood is exp(-cost)
         grad_log_p = ag(-cost.sum(), x, retain_graph=True)[0]
         k_xx = self.kernel(x, x)
-        grad_k = ag(k_xx.sum(), x)[0]
+        grad_k = -1 * ag(k_xx.sum(), x)[0]  # TODO: Check if this is needed
         score_dict = {
             "k_xx": k_xx.detach(),
             "grad_k": self.scheduler() * grad_k.detach(),
