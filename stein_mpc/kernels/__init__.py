@@ -6,7 +6,12 @@ from ._kernels import (
     ScaledIMQKernel,
 )
 
-from ._traj_kernels import TrajectoryKernel, PathSigKernel, SignatureKernel
+from ._traj_kernels import (
+    TrajectoryKernel,
+    PathSigKernel,
+    SignatureKernel,
+    BatchGaussianKernel,
+)
 
 __all__ = [
     "BaseKernel",
@@ -16,5 +21,6 @@ __all__ = [
     "ScaledIMQKernel",
     "TrajectoryKernel",
     "PathSigKernel",
+    "BatchGaussianKernel",
     "SignatureKernel",
 ]

@@ -144,10 +144,60 @@ class PathSigKernel(BaseKernel):
             return K
 
 
-class SignatureKernel(BaseKernel):
-    def __init__(self, bandwidth: float = 0.5, depth: int = 3, **kwargs):
-        super().__init__(lambda: bandwidth, analytic_grad=False, **kwargs)
-        static_kernel = sigkernel.RBFKernel(sigma=bandwidth)
+class BatchGaussianKernel(BaseKernel):
+    """RBF kernel k: R^d x R^d -> R"""
+
+    def __init__(self, bandwidth_fn: scalar_function = None, **kwargs):
+        super().__init__(bandwidth_fn, analytic_grad=False, **kwargs)
+
+    def __call__(self, X: torch.Tensor, Y: torch.Tensor, **kwargs) -> kernel_output:
+        return self.batch_kernel(X, Y, **kwargs)
+
+    def batch_kernel(self, X, Y, h=None):
+        """Input:
+                  - X: torch tensor of shape (batch, length_X, dim),
+                  - Y: torch tensor of shape (batch, length_Y, dim)
+           Output:
+                  - matrix k(X^i_s,Y^i_t) of shape (batch, length_X, length_Y)
+        """
+        A = X.shape[0]
+        M = X.shape[1]
+        N = Y.shape[1]
+        Xs = torch.sum(X ** 2, dim=2)
+        Ys = torch.sum(Y ** 2, dim=2)
+        dist = -2.0 * torch.bmm(X, Y.permute(0, 2, 1))
+        dist += torch.reshape(Xs, (A, M, 1)) + torch.reshape(Ys, (A, 1, N))
+        if h is None:
+            h = self.get_bandwidth(dist)
+        else:
+            h = float(h)
+        return torch.exp(-dist / h)
+
+    def Gram_matrix(self, X, Y, h=None):
+        """Input:
+                  - X: torch tensor of shape (batch_X, length_X, dim),
+                  - Y: torch tensor of shape (batch_Y, length_Y, dim)
+           Output:
+                  - matrix k(X^i_s,Y^j_t) of shape (batch_X, batch_Y, length_X, length_Y)
+        """
+        A = X.shape[0]
+        B = Y.shape[0]
+        M = X.shape[1]
+        N = Y.shape[1]
+        Xs = torch.sum(X ** 2, dim=2)
+        Ys = torch.sum(Y ** 2, dim=2)
+        dist = -2.0 * torch.einsum("ipk,jqk->ijpq", X, Y)
+        dist += torch.reshape(Xs, (A, 1, M, 1)) + torch.reshape(Ys, (1, B, 1, N))
+        if h is None:
+            h = self.get_bandwidth(dist)
+        else:
+            h = float(h)
+        return torch.exp(-dist / h)
+
+
+class SignatureKernel:
+    def __init__(self, bandwidth_fn: scalar_function = None, depth: int = 3, **kwargs):
+        static_kernel = BatchGaussianKernel(bandwidth_fn=bandwidth_fn)
         self.kernel = sigkernel.SigKernel(static_kernel, dyadic_order=depth)
 
     def __call__(self, X, Y, **kwargs):
