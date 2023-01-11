@@ -20,7 +20,7 @@ from torchcubicspline import NaturalCubicSpline, natural_cubic_spline_coeffs
 from tqdm import trange
 
 
-def create_spline_trajectory(knots, timesteps=100, ctx={}):
+def create_spline_trajectory(knots, timesteps=100, ctx={"device": "cpu"}):
     t = torch.linspace(0, 1, timesteps, **ctx)
     t_knots = torch.linspace(0, 1, knots.shape[-2], **ctx)
     coeffs = natural_cubic_spline_coeffs(t_knots, knots)
@@ -29,7 +29,11 @@ def create_spline_trajectory(knots, timesteps=100, ctx={}):
 
 
 def plot_2d_dist(
-    log_p, l_bounds=(0.0, 0.0), u_bounds=(5.0, 5.0), grid_size=100, ctx={}
+    log_p,
+    l_bounds=(0.0, 0.0),
+    u_bounds=(5.0, 5.0),
+    grid_size=100,
+    ctx={"device": "cpu"},
 ):
     x_lim, y_lim = zip(l_bounds, u_bounds)
     x = torch.linspace(*x_lim, grid_size, **ctx)
@@ -40,7 +44,7 @@ def plot_2d_dist(
     )
 
     fig, ax = plt.subplots(figsize=(10, 10))
-    ax.contourf(X.cpu(), Y.cpu(), Z.data.cpu().numpy(), 30, cmap=plt.get_cmap("Greys"))
+    # ax.contourf(X.cpu(), Y.cpu(), Z.data.cpu().numpy(), 30, cmap=plt.get_cmap("Greys"))
     ax.set_xlim(x_lim)
     ax.set_ylim(y_lim)
     return fig, ax
@@ -57,17 +61,19 @@ def create_2d_movie(
     n_iter=100,
     title="Trajectory Optimization with Path Signatures",
     save_path="movie.mp4",
+    step=1,
     ctx={},
 ):
     fig, ax = plot_2d_dist(log_p, l_bounds, u_bounds, grid_size, ctx)
-    cycler = plt.cycler("color", plt.cm.tab20b.colors[:batch])
+    cycler = plt.cycler("color", plt.cm.tab20(torch.linspace(0, 1, batch)))
     ax.set_prop_cycle(cycler)
     plt.title(title)
+    plt.tight_layout()
     ax.scatter(*start, c="red", marker="x", s=20)
     ax.scatter(*target, c="red", marker="x", s=20)
     container = []
     print("Creating movie...")
-    for i in trange(n_iter):
+    for i in trange(0, n_iter, step):
         im = []
         # list of [batch] lines
         if "traj" in data:
@@ -104,7 +110,7 @@ def create_2d_movie(
     plt.close()
 
 
-def run_exp(hp, log_p, x, path, id):
+def run_exp(hp, log_p, x, path, id, render=False, step=1):
     experiment_path = Path(f"{path}/{id}")
     if not experiment_path.exists():
         experiment_path.mkdir(parents=True)
@@ -124,8 +130,6 @@ def run_exp(hp, log_p, x, path, id):
         len_cost = torch.norm(w[1] * (traj[:, 1:] - traj[:, :-1]), dim=[-2, -1])
         return (obst_cost + len_cost), {"trajectories": traj}
 
-    # Run Path Signature optimization
-    ####################################################################################
     # Set initial state
     initial_knots = torch.cat(
         (start_pose.repeat(batch, 1, 1), x, target_pose.repeat(batch, 1, 1)), 1
@@ -137,14 +141,10 @@ def run_exp(hp, log_p, x, path, id):
         x = initial_traj[:, 1:-1, :].clone().requires_grad_(True)
 
     # Set hyperparams
-    if hp["sgd_refine"] is True:
-        # SGD + PathSig
-        scheduler = CosineScheduler(1, 0, 3 * hp["n_iter"] // 4, hp["n_iter"] // 4)
-        plot_title = "Trajectory Optimization with Scheduled Path Signature Kernel"
+    if hp["scheduler"] is not None:
+        plot_title = "Trajectory Optimization with Scheduled "
     else:
-        # Just PathSig
-        scheduler = None
-        plot_title = "Trajectory Optimization with Path Signature Kernel"
+        plot_title = "Trajectory Optimization with "
 
     cost_fn_params = [
         log_p,
@@ -154,142 +154,158 @@ def run_exp(hp, log_p, x, path, id):
         [1, 1],  # cost weights for collision and length
     ]
 
-    # Run optimization
-    kernel = SignatureKernel(bandwidth=hp["ps_lengthscale"], depth=hp["dyadic_order"])
+    # Run Path Signature optimization
+    ####################################################################################
+    print(f"\nRunning PathSig with lengthscale: {hp['ps_lengthscale'](0)}")
+    particles = x.clone()
+    kernel = SignatureKernel(
+        bandwidth_fn=hp["ps_lengthscale"], depth=hp["dyadic_order"]
+    )
     stein_sampler = SVGD(kernel, **hp["optimizer_args"])
-    estimator = PlanningEstimator(kernel, batch_cost_fn, cost_fn_params, scheduler, ctx)
+    estimator = PlanningEstimator(
+        kernel, batch_cost_fn, cost_fn_params, hp["scheduler"], ctx
+    )
     data_dict, _ = stein_sampler.optimize(
-        x, estimator.score, n_steps=hp["n_iter"], debug=True
+        particles, estimator.score, n_steps=hp["n_iter"], debug=True
     )
     torch.save(data_dict, f=experiment_path / "pathsig_data.pt")
 
-    # trace = data_dict["trace"]
     # Create episode movie
-    # if hp["use_splines"] is True:
-    #     all_knots = torch.cat(
-    #         (
-    #             start_pose.repeat(hp["n_iter"] + 1, batch, 1, 1),
-    #             trace,
-    #             target_pose.repeat(hp["n_iter"] + 1, batch, 1, 1),
-    #         ),
-    #         dim=-2,
-    #     )
-    #     all_traj = create_spline_trajectory(all_knots, ctx=ctx)
-    #     plot_data = {"traj": all_traj, "knots": all_knots}
-    # else:
-    #     all_traj = torch.cat(
-    #         (
-    #             start_pose.repeat(hp["n_iter"] + 1, batch, 1, 1),
-    #             trace,
-    #             target_pose.repeat(hp["n_iter"] + 1, batch, 1, 1),
-    #         ),
-    #         dim=-2,
-    #     )
-    #     plot_data = {"traj": all_traj}
-    # create_2d_movie(
-    #     plot_data,
-    #     log_p,
-    #     start_pose.cpu(),
-    #     target_pose.cpu(),
-    #     l_bounds=limits[0],
-    #     u_bounds=limits[1],
-    #     n_iter=hp["n_iter"],
-    #     title=plot_title,
-    #     save_path=experiment_path / "pathsig.mp4",
-    #     ctx=ctx,
-    # )
+    if render:
+        trace = data_dict["trace"]
+        if hp["use_splines"] is True:
+            all_knots = torch.cat(
+                (
+                    start_pose.repeat(hp["n_iter"] + 1, batch, 1, 1).cpu(),
+                    trace,
+                    target_pose.repeat(hp["n_iter"] + 1, batch, 1, 1).cpu(),
+                ),
+                dim=-2,
+            )
+            all_traj = create_spline_trajectory(all_knots)
+            plot_data = {"traj": all_traj, "knots": all_knots}
+        else:
+            all_traj = torch.cat(
+                (
+                    start_pose.repeat(hp["n_iter"] + 1, batch, 1, 1).cpu(),
+                    trace,
+                    target_pose.repeat(hp["n_iter"] + 1, batch, 1, 1).cpu(),
+                ),
+                dim=-2,
+            )
+            plot_data = {"traj": all_traj}
+        create_2d_movie(
+            plot_data,
+            log_p,
+            start_pose.cpu(),
+            target_pose.cpu(),
+            l_bounds=limits[0],
+            u_bounds=limits[1],
+            n_iter=hp["n_iter"],
+            title=plot_title + "Path Signature Kernel",
+            save_path=experiment_path / "pathsig.mp4",
+            step=step,
+            ctx=ctx,
+        )
 
     # Run SVMP comparison
     ####################################################################################
-    # Set initial state
-    if hp["use_splines"] is True:
-        x = initial_knots[:, 1:-1, :].clone().requires_grad_(True)
-    else:
-        initial_traj = create_spline_trajectory(initial_knots, hp["waypts"], ctx=ctx)
-        x = initial_traj[:, 1:-1, :].clone().requires_grad_(True)
-
-    # Run optimization
-    kernel = GaussianKernel(bandwidth_fn=lambda _: hp["ps_lengthscale"])
+    print(f"\nRunning SVMP with lengthscale: {hp['lengthscale'](0)}")
+    particles = x.clone()
+    kernel = GaussianKernel(bandwidth_fn=hp["lengthscale"])
     stein_sampler = SVGD(kernel, **hp["optimizer_args"])
-    estimator = PlanningEstimator(kernel, batch_cost_fn, cost_fn_params, scheduler, ctx)
+    estimator = PlanningEstimator(
+        kernel, batch_cost_fn, cost_fn_params, hp["scheduler"], ctx
+    )
     data_dict, _ = stein_sampler.optimize(
-        x, estimator.score, n_steps=hp["n_iter"], debug=True
+        particles, estimator.score, n_steps=hp["n_iter"], debug=True
     )
     torch.save(data_dict, f=experiment_path / "svmp_data.pt")
 
+    # Create episode movie
+    if render:
+        trace = data_dict["trace"]
+        if hp["use_splines"] is True:
+            all_knots = torch.cat(
+                (
+                    start_pose.repeat(hp["n_iter"] + 1, batch, 1, 1).cpu(),
+                    trace,
+                    target_pose.repeat(hp["n_iter"] + 1, batch, 1, 1).cpu(),
+                ),
+                dim=-2,
+            )
+            all_traj = create_spline_trajectory(all_knots)
+            plot_data = {"traj": all_traj, "knots": all_knots}
+        else:
+            all_traj = torch.cat(
+                (
+                    start_pose.repeat(hp["n_iter"] + 1, batch, 1, 1).cpu(),
+                    trace,
+                    target_pose.repeat(hp["n_iter"] + 1, batch, 1, 1).cpu(),
+                ),
+                dim=-2,
+            )
+            plot_data = {"traj": all_traj}
+        create_2d_movie(
+            plot_data,
+            log_p,
+            start_pose.cpu(),
+            target_pose.cpu(),
+            l_bounds=limits[0],
+            u_bounds=limits[1],
+            n_iter=hp["n_iter"],
+            title=plot_title + "Gaussian Kernel",
+            save_path=experiment_path / "svmp.mp4",
+            step=step,
+            ctx=ctx,
+        )
+
     # Run SGD comparison
     ####################################################################################
-    # Set initial state
-    if hp["use_splines"] is True:
-        x = initial_knots[:, 1:-1, :].clone().requires_grad_(True)
-    else:
-        initial_traj = create_spline_trajectory(initial_knots, hp["waypts"], ctx=ctx)
-        x = initial_traj[:, 1:-1, :].clone().requires_grad_(True)
-
-    # Run optimization
+    print("\nRunning SGD")
+    particles = x.clone()
     data_dict, _ = stein_sampler.optimize(
-        x, estimator.sgd_score, n_steps=hp["n_iter"], debug=True
+        particles, estimator.sgd_score, n_steps=hp["n_iter"], debug=True
     )
     torch.save(data_dict, f=experiment_path / "sgd_data.pt")
 
-    # trace = data_dict["trace"]
-    # # Create episode movie
-    # if hp["use_splines"] is True:
-    #     all_knots = torch.cat(
-    #         (
-    #             start_pose.repeat(hp["n_iter"] + 1, batch, 1, 1),
-    #             trace,
-    #             target_pose.repeat(hp["n_iter"] + 1, batch, 1, 1),
-    #         ),
-    #         dim=-2,
-    #     )
-    #     all_traj = create_spline_trajectory(all_knots, ctx=ctx)
-    #     plot_data = {"traj": all_traj, "knots": all_knots}
-    # else:
-    #     all_traj = torch.cat(
-    #         (
-    #             start_pose.repeat(hp["n_iter"] + 1, batch, 1, 1),
-    #             trace,
-    #             target_pose.repeat(hp["n_iter"] + 1, batch, 1, 1),
-    #         ),
-    #         dim=-2,
-    #     )
-    #     plot_data = {"traj": all_traj}
-    # create_2d_movie(
-    #     plot_data,
-    #     log_p,
-    #     start_pose.cpu(),
-    #     target_pose.cpu(),
-    #     l_bounds=limits[0],
-    #     u_bounds=limits[1],
-    #     n_iter=hp["n_iter"],
-    #     title="Trajectory Optimization with SGD",
-    #     save_path=experiment_path,
-    #     ctx=ctx,
-    # )
-
-
-def compile_results(seeds, obstacles, ps_res, sgd_res):
-    ps_costs = torch.tensor([])
-    sgd_costs = torch.tensor([])
-
-    for s in seeds:
-        for n in obstacles:
-            last_key = list(ps_res[s][n].keys())[-2]
-            ep_cost = ps_res[s][n][last_key]["loss"].cpu()
-            ps_costs = torch.cat([ps_costs, ep_cost[None, :]])
-
-            last_key = list(sgd_res[s][n].keys())[-2]
-            ep_cost = sgd_res[s][n][last_key]["loss"].cpu()
-            sgd_costs = torch.cat([sgd_costs, ep_cost[None, :]])
-
-    results = {
-        "sgd_costs": sgd_costs.reshape(len(seeds), len(obstacles), -1),
-        "ps_costs": ps_costs.reshape(len(seeds), len(obstacles), -1),
-        "seeds": seeds,
-        "n_obstacles": obstacles,
-    }
-    return results
+    # Create episode movie
+    if render:
+        trace = data_dict["trace"]
+        if hp["use_splines"] is True:
+            all_knots = torch.cat(
+                (
+                    start_pose.repeat(hp["n_iter"] + 1, batch, 1, 1).cpu(),
+                    trace,
+                    target_pose.repeat(hp["n_iter"] + 1, batch, 1, 1).cpu(),
+                ),
+                dim=-2,
+            )
+            all_traj = create_spline_trajectory(all_knots)
+            plot_data = {"traj": all_traj, "knots": all_knots}
+        else:
+            all_traj = torch.cat(
+                (
+                    start_pose.repeat(hp["n_iter"] + 1, batch, 1, 1).cpu(),
+                    trace,
+                    target_pose.repeat(hp["n_iter"] + 1, batch, 1, 1).cpu(),
+                ),
+                dim=-2,
+            )
+            plot_data = {"traj": all_traj}
+        create_2d_movie(
+            plot_data,
+            log_p,
+            start_pose.cpu(),
+            target_pose.cpu(),
+            l_bounds=limits[0],
+            u_bounds=limits[1],
+            n_iter=hp["n_iter"],
+            title="Trajectory Optimization with SGD",
+            save_path=experiment_path / "sgd.mp4",
+            step=step,
+            ctx=ctx,
+        )
 
 
 if __name__ == "__main__":
@@ -300,25 +316,33 @@ if __name__ == "__main__":
         ctx = {"device": "cpu", "dtype": torch.float32}
 
     # Confiure experiment hyperparameters
-    N_EXP = 5
+    N_EXP = 1
     hyperparameters = {
-        "sgd_refine": True,
         "use_splines": True,
         "n_iter": 500,
-        "waypts": 30,
+        "waypts": 80,
         # [obstacle penalty, length penalty]
-        "w_penalty": [1.0, 200.0],
-        "ps_lengthscale": 1.0,
+        "w_penalty": [1.0, 2.0],
+        "ps_lengthscale": lambda _: 0.03,
+        "lengthscale": lambda _: 0.2,
+        # "ps_lengthscale": lambda _: 0.2,
+        # "lengthscale": lambda _: 0.5,
         "dyadic_order": 5,
         "optimizer_args": {
             "optimizer_class": torch.optim.Adam,
             "adaptive_gradient": True,
-            "lr": 0.1,
+            "lr": 0.05,
         },
     }
+    hyperparameters["scheduler"] = CosineScheduler(
+        1, 0, hyperparameters["n_iter"] // 2, hyperparameters["n_iter"] // 1.5
+    )
+    hyperparameters["scheduler"] = None
 
     seeds = generate_seeds(N_EXP)
-    obstacles = [5, 25, 50]
+    batch, length, channels = 20, 5, 2
+    obstacles = [50, 10]
+    obstacles = [1]
     ps_results = {}
     sgd_results = {}
     ymd_time = time.strftime("%Y%m%d-%H%M%S")
@@ -329,27 +353,33 @@ if __name__ == "__main__":
             path.mkdir(parents=True)
 
         # Samples points for multiple splines with the same start and target positions
-        batch, length, channels = 10, 7, 2
         start_pose = torch.tensor([0.25, 0.75], **ctx)
         target_pose = torch.tensor([4.75, 4.5], **ctx)
-        offset = torch.tensor([1.0, 1.0], **ctx)
-        x = 4 * torch.rand(batch, length - 2, channels, **ctx) + offset
+        # offset = torch.tensor([1.0, 1.0], **ctx)
+        # x = 4 * torch.rand(batch, length - 2, channels, **ctx) + offset
+        x = torch.linspace(0.25, 4.75, length) + 0.4 * torch.randn(batch, length)
+        y = torch.linspace(0.75, 4.5, length) + 0.4 * torch.randn(batch, length)
+        wp = torch.cat([x[:, 1:-1][..., None], y[:, 1:-1][..., None]], dim=-1).to(**ctx)
 
         ps_results[seed], sgd_results[seed] = ({}, {})
         for n_obst in obstacles:
+            # values = torch.logspace(-3, 0, 10)
+            # for bw in values:
+            # hyperparameters["ps_lengthscale"] = lambda _: bw
+            # hyperparameters["lengthscale"] = lambda _: bw
+            # n_obst = 1
             # Gaussian obstacles
             limits = torch.tensor([[0.0, 0.0], [5.0, 5.0]])
             w = torch.ones(n_obst, **ctx)
             samples = qmc.Halton(2, seed=seed).random(n_obst)
             mean = qmc.scale(samples, limits[0] + 0.5, limits[1] - 0.5)
-            mean = torch.as_tensor(mean, **ctx)
-            # mean = dist.uniform.Uniform(limits[0], limits[1]).sample([n_obst])
+            mean = torch.as_tensor(mean, **ctx) + 100
             var = 0.05 * torch.ones([n_obst, 2], **ctx)
             mix = dist.Categorical(w)
             comp = dist.Independent(dist.Normal(mean, var), 1)
             log_p = dist.MixtureSameFamily(mix, comp).log_prob
 
-            run_exp(hyperparameters, log_p, x, path, n_obst)
+            run_exp(hyperparameters, log_p, wp, path, n_obst, render=True, step=2)
             # res = run_exp(hyperparameters, log_p, x, path, n_obst)
             # ps_results[seed][n_obst], sgd_results[seed][n_obst] = res
 

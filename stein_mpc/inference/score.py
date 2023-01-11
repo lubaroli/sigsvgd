@@ -52,8 +52,8 @@ class PlanningEstimator:
         cost, cost_dict = self.cost_fn(x, *self.cost_fn_params)
         # considering the likelihood is exp(-cost)
         grad_log_p = ag(-cost.sum(), x, retain_graph=True)[0]
-        k_xx = self.kernel(x, x, compute_grad=False)
-        grad_k = ag(k_xx.sum(), x)[0]
+        k_xx = self.kernel(x, x.detach(), compute_grad=False)
+        grad_k = -1 * ag(k_xx.sum(), x)[0]
         score_dict = {
             "k_xx": k_xx,
             "grad_k": self.scheduler() * grad_k,
@@ -66,8 +66,8 @@ class PlanningEstimator:
         cost, cost_dict = self.cost_fn(x, *self.cost_fn_params)
         # considering the likelihood is exp(-cost)
         grad_log_p = ag(-cost.sum(), x, retain_graph=True)[0]
-        k_xx = self.kernel(x, x)
-        grad_k = -1 * ag(k_xx.sum(), x)[0]  # TODO: Check if this is needed
+        k_xx = self.kernel(x, x.detach())
+        grad_k = -1 * ag(k_xx.sum(), x)[0]  # TODO: Unsdertand why this is needed
         score_dict = {
             "k_xx": k_xx.detach(),
             "grad_k": self.scheduler() * grad_k.detach(),

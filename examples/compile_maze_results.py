@@ -39,24 +39,9 @@ def compile_results(path):
         },
     }
 
-    ro = ps_res["rollouts"]
-    steps, samples, policies, _, _ = ro.shape
-    hd_dist = torch.zeros(steps, samples, samples, policies, policies)
-
-    from hausdorff import hausdorff_distance
-
-    for k in range(steps):
-        for si in range(samples):
-            for sj in range(samples):
-                for pi in range(policies):
-                    for pj in range(policies):
-                        hd_dist[k, si, sj, pi, pj] = hausdorff_distance(
-                            ro[k, si, pi, 1:, :2], ro[k, sj, pj, 1:, :2]
-                        )
-
 
 if __name__ == "__main__":
     path = Path("data/local/maze-20220912-190818")
     results = compile_results(path)
     df = pd.DataFrame(data=results)
-    print(df.to_markdown())
+    df.to_markdown(buf=path / results.md)

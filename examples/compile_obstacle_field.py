@@ -51,7 +51,7 @@ def compile_results(path):
 
 
 if __name__ == "__main__":
-    path = Path("data/local/path-plan-20221216-100623")
+    path = Path("data/local/path-plan-20221223-101011")
     results = compile_results(path)
     results.to_markdown(buf=path / "results.md")
     results.style.to_latex(buf=path / "results.tex")
