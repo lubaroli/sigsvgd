@@ -29,7 +29,7 @@ def color_generator():
 robot = PandaRobot(device=device)
 scene = robot_scene.RobotScene(robot, robot_scene.tag_names[0])
 
-# construct a visualiser for the robot for plotting.
+# construct a visualizer for the robot for plotting.
 robot_visualizer = robot_visualizer.RobotVisualizer(robot)
 
 ############################################################
