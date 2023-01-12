@@ -176,6 +176,7 @@ def visualise_model_pred(
         import plotly.graph_objects as go
 
         prob = query_pt_pred[:, 0].detach().cpu()
+        prob = torch.exp(-10 * (1 - prob))
 
         _criteria = prob > prob_threshold
         _query_pt = query_pt[_criteria]
