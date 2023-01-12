@@ -10,6 +10,7 @@ from gpytorch.priors import SmoothedBoxPrior
 from stein_mpc.inference import SVGD
 from stein_mpc.kernels import SignatureKernel, GaussianKernel
 from stein_mpc.models.robot import robot_scene, robot_visualizer
+from stein_mpc.models.robot import robot_visualizer, robot_scene
 from stein_mpc.models.robot.robot_scene import PathRequest
 from stein_mpc.models.robot.robot_simulator import PandaRobot
 from stein_mpc.models.robot_learning import (

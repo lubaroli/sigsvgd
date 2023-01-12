@@ -4,7 +4,6 @@ import time
 from os import path
 from pathlib import Path
 
-import numpy as np
 import pybullet as p
 import pybullet_tools.utils as pu
 import torch
@@ -18,7 +17,6 @@ from stein_mpc.models.robot_learning import (
     continuous_self_collision_pred,
 )
 from stein_mpc.utils.helper import get_project_root
-from stein_mpc.utils.updatable_mpl import UpdatableSequentialPlot
 
 this_directory = Path(path.abspath(path.dirname(__file__)))
 sys.path.insert(0, str(this_directory / ".."))
@@ -28,9 +26,9 @@ from examples.script_planning_robot import create_body_points
 parser = argparse.ArgumentParser()
 parser.add_argument("data_folder", type=str)
 parser.add_argument(
-    "-d0", "--delay-between-interpolated-joint", default=0.005, type=float
+    "-d0", "--delay-between-interpolated-joint", default=0.001, type=float
 )
-parser.add_argument("-d1", "--delay-between-joint", default=0.005, type=float)
+parser.add_argument("-d1", "--delay-between-joint", default=0.001, type=float)
 parser.add_argument("-d2", "--delay-between-solution", default=0.75, type=float)
 parser.add_argument("-d3", "--delay-between-scene", default=1, type=float)
 parser.add_argument(
@@ -141,11 +139,11 @@ if __name__ == "__main__":
 
             gt_traj = robot_scene.Trajectory.from_yaml(scene.trajectory_paths[req_i])
 
-            occmap = continuous_occupancy_map.load_trained_model(scene.weight_path)
+            occmap = continuous_occupancy_map.load_trained_model(str(scene.weight_path))
             self_collision_predictor = continuous_self_collision_pred.load_trained_model(
-                robot.self_collision_model_weight_path
+                str(robot.self_collision_model_weight_path)
             )
-            occ_plot = UpdatableSequentialPlot(nrows=4)
+            # occ_plot = UpdatableSequentialPlot(nrows=4)
 
             for kernel_method in subfolder.glob("*"):
                 _name = f"{folder.name.split('-')[1]} [{kernel_method.name}]"
@@ -175,72 +173,72 @@ if __name__ == "__main__":
                         f"{_name}. Req: {i + 1}/{len(subfolders)}  n: {j + 1}/{traj.shape[0]}",
                         position=[-1, -1, 1.5],
                     )
-                    occ_plot.clear()
-                    occ_plot.figure.suptitle(f"Cost: {_name}", fontsize=20)
-                    occ_plot.axs[0].set_title("Environment-collision Cost", fontsize=14)
-                    occ_plot.axs[1].set_title("Self-collision Cost", fontsize=14)
-                    occ_plot.axs[2].set_title("Piece-wise Traj len Cost", fontsize=14)
-                    occ_plot.axs[3].set_title("ALL cumulative Cost", fontsize=14)
-                    occ_plot.axs[3].set_xlabel("Timestep")
-                    occ_plot.axs[0].set_xlim(0, traj.shape[1])
-
-                    with torch.no_grad():
-                        _cost_history = compute_all_cost(traj[j : j + 1, ...])
-                        # pair-wise traj dist is one short.
-                        _cost_history["traj_dist"] = np.array(
-                            [0] + _cost_history["traj_dist"].tolist()
-                        )
-                        _cost_history_cumulative = dict(
-                            env_coll=np.cumsum(_cost_history["env_coll"].copy()),
-                            self_coll=np.cumsum(_cost_history["self_coll"].copy()),
-                            traj_dist=np.cumsum(_cost_history["traj_dist"].copy()),
-                        )
-
-                    def plotting_callback(qs, i):
-                        with torch.no_grad():
-                            occ_plot.add_data(
-                                "cost: env-col",
-                                _cost_history["env_coll"][i],
-                                index=0,
-                                auto_ylim=True,
-                                update=False,
-                            )
-                            occ_plot.add_data(
-                                "cost: self-col",
-                                _cost_history["self_coll"][i],
-                                index=1,
-                                auto_ylim=True,
-                                update=False,
-                            )
-                            occ_plot.add_data(
-                                "cost: traj-dist",
-                                _cost_history["traj_dist"][i],
-                                index=2,
-                                auto_ylim=True,
-                                update=False,
-                            )
-                            occ_plot.add_data(
-                                "cost: env-col",
-                                _cost_history_cumulative["env_coll"][i],
-                                index=3,
-                                auto_ylim=True,
-                                update=False,
-                            )
-                            occ_plot.add_data(
-                                "cost: self-col",
-                                _cost_history_cumulative["self_coll"][i],
-                                index=3,
-                                auto_ylim=True,
-                                update=False,
-                            )
-                            occ_plot.add_data(
-                                "cost: traj-dist",
-                                _cost_history_cumulative["traj_dist"][i],
-                                index=3,
-                                auto_ylim=True,
-                                update=False,
-                            )
-                            occ_plot.update()
+                    #     occ_plot.clear()
+                    #     occ_plot.figure.suptitle(f"Cost: {_name}", fontsize=20)
+                    #     occ_plot.axs[0].set_title("Environment-collision Cost", fontsize=14)
+                    #     occ_plot.axs[1].set_title("Self-collision Cost", fontsize=14)
+                    #     occ_plot.axs[2].set_title("Piece-wise Traj len Cost", fontsize=14)
+                    #     occ_plot.axs[3].set_title("ALL cumulative Cost", fontsize=14)
+                    #     occ_plot.axs[3].set_xlabel("Timestep")
+                    #     occ_plot.axs[0].set_xlim(0, traj.shape[1])
+                    #
+                    #     with torch.no_grad():
+                    #         _cost_history = compute_all_cost(traj[j : j + 1, ...])
+                    #         # pair-wise traj dist is one short.
+                    #         _cost_history["traj_dist"] = np.array(
+                    #             [0] + _cost_history["traj_dist"].tolist()
+                    #         )
+                    #         _cost_history_cumulative = dict(
+                    #             env_coll=np.cumsum(_cost_history["env_coll"].copy()),
+                    #             self_coll=np.cumsum(_cost_history["self_coll"].copy()),
+                    #             traj_dist=np.cumsum(_cost_history["traj_dist"].copy()),
+                    #         )
+                    #
+                    #     def plotting_callback(qs, i):
+                    #         with torch.no_grad():
+                    #             occ_plot.add_data(
+                    #                 "cost: env-col",
+                    #                 _cost_history["env_coll"][i],
+                    #                 index=0,
+                    #                 auto_ylim=True,
+                    #                 update=False,
+                    #             )
+                    #             occ_plot.add_data(
+                    #                 "cost: self-col",
+                    #                 _cost_history["self_coll"][i],
+                    #                 index=1,
+                    #                 auto_ylim=True,
+                    #                 update=False,
+                    #             )
+                    #             occ_plot.add_data(
+                    #                 "cost: traj-dist",
+                    #                 _cost_history["traj_dist"][i],
+                    #                 index=2,
+                    #                 auto_ylim=True,
+                    #                 update=False,
+                    #             )
+                    #             occ_plot.add_data(
+                    #                 "cost: env-col",
+                    #                 _cost_history_cumulative["env_coll"][i],
+                    #                 index=3,
+                    #                 auto_ylim=True,
+                    #                 update=False,
+                    #             )
+                    #             occ_plot.add_data(
+                    #                 "cost: self-col",
+                    #                 _cost_history_cumulative["self_coll"][i],
+                    #                 index=3,
+                    #                 auto_ylim=True,
+                    #                 update=False,
+                    #             )
+                    #             occ_plot.add_data(
+                    #                 "cost: traj-dist",
+                    #                 _cost_history_cumulative["traj_dist"][i],
+                    #                 index=3,
+                    #                 auto_ylim=True,
+                    #                 update=False,
+                    #             )
+                    #             occ_plot.update()
 
                     scene.play(
                         Trajectory(
@@ -253,12 +251,12 @@ if __name__ == "__main__":
                             ]
                         ),
                         robot.target_joint_names,
-                        interpolate_step=5,
+                        interpolate_step=2,
                         delay_between_interpolated_joint=args.delay_between_interpolated_joint,
                         delay_between_joint=args.delay_between_joint,
-                        callback=plotting_callback,
+                        # callback=plotting_callback,
                     )
-                    occ_plot.clear()
+                    # occ_plot.clear()
                     # scene.play(
                     #     gt_traj,
                     #     robot.target_joint_names,
