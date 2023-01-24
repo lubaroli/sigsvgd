@@ -25,7 +25,7 @@ if __name__ == "__main__":
     # kernel.analytic_grad = False
     # kernel = ScaledGaussianKernel()
 
-    optimizer = "lbfgs"
+    optimizer = "adam"
     if optimizer.lower() == "adam":
         opt = torch.optim.Adam
         opt_kwargs = {
@@ -74,7 +74,7 @@ if __name__ == "__main__":
     log_prior = pri.log_prob
     # log_prior = None
 
-    stein_method = "scaled"
+    stein_method = "svgd"
     if stein_method.lower() == "svgd":
         stein_sampler = SVGD(
             kernel, log_p, log_prior, optimizer_class=opt, **opt_kwargs
@@ -101,6 +101,6 @@ if __name__ == "__main__":
     print(f"Time taken: {time.process_time() - start:.2f} seconds.")
     print("Creating movie...")
     create_2d_particles_movie(
-        X_all, log_p, n_iter=N_ITER, save_path="tests/results/stein_movie_2D.mp4"
+        X_all, log_p, n_iter=N_ITER, save_path="data/local/stein_movie_2D.mp4"
     )
     print("Done.")
