@@ -63,8 +63,8 @@ class BaseKernel(ABC, torch.nn.Module):
 
 class GaussianKernel(BaseKernel):
     def __init__(self, bandwidth_fn: scalar_function = None, **kwargs):
-        r"""Computes a the covariance matrix based on the RBF (squared exponential)
-        kernel between inputs `X` and `Y`:
+        r"""Computes the covariance matrix and its derivative based on the RBF (squared
+        exponential) kernel between inputs `X` and `Y`:
 
             `k(X, Y) = exp((-0.5 / h^2) * ||X - Y||^2)`
 
@@ -83,7 +83,8 @@ class GaussianKernel(BaseKernel):
         compute_grad=True,
         **kwargs,
     ) -> kernel_output:
-        """Evaluate kernel function and corresponding gradient terms for batch of inputs.
+        """Computes the covariance matrix and its derivative (cross-covariance) for a
+        batch of inputs.
 
         Args:
             X (torch.Tensor): Input data of shape [batch, dim].
@@ -106,20 +107,18 @@ class GaussianKernel(BaseKernel):
             h = self.get_bandwidth(sq_dists)
         else:
             h = float(h)
-
-        gamma = -0.5 / h ** 2
-        K = (gamma * sq_dists).exp()
+        K = (-0.5 / h ** 2 * sq_dists).exp()
         if compute_grad:
             d_K = -(X.unsqueeze(1) - Y) / (h ** 2) * K.unsqueeze(-1)
-            return K, d_K
+            return K, d_K.sum(1)
         else:
             return K
 
 
 class ScaledGaussianKernel(BaseKernel):
     def __init__(self, bandwidth_fn: scalar_function = None, **kwargs):
-        r"""Computes a scaled and preconditioned covariance matrix based on the Gaussian
-        RBF kernel between inputs `X` and `Y` with metric `M`:
+        r"""Computes a scaled and preconditioned covariance matrix and its derivative based
+        on the Gaussian RBF kernel between a batch of inputs `X` and `Y` with metric `M`:
 
             `k(X, Y) = exp(-(0.5 / h^2) * (X - Y) * M * (X - Y)^T)`
 
@@ -144,7 +143,8 @@ class ScaledGaussianKernel(BaseKernel):
         compute_grad=True,
         **kwargs,
     ) -> kernel_output:
-        """Evaluate kernel function and corresponding gradient terms for batch of inputs.
+        """Computes the covariance matrix and its derivative (cross-covariance) for a
+        batch of inputs.
 
         Args:
             X (torch.Tensor): Input data of shape [batch, dim].
@@ -182,7 +182,7 @@ class ScaledGaussianKernel(BaseKernel):
         K = (gamma * sq_dists).exp()
         if compute_grad:
             d_K = -sq_dists_grad * K.unsqueeze(-1) / (h ** 2)
-            return K, d_K
+            return K, d_K.sum(1)
         else:
             return K
 
@@ -234,7 +234,7 @@ class IMQKernel(BaseKernel):
         K = denom ** -0.5
         if compute_grad:
             d_K = -0.5 * (denom.unsqueeze(-1) ** -1.5) * ((Y - X.unsqueeze(1)) / h ** 2)
-            return K, d_K
+            return K, d_K.sum(1)
         else:
             return K
 
@@ -294,6 +294,6 @@ class ScaledIMQKernel(BaseKernel):
         K = denom ** -0.5
         if compute_grad:
             d_K = -0.5 * (denom.unsqueeze(-1) ** -1.5) * (sq_dists_grad / h ** 2)
-            return K, d_K
+            return K, d_K.sum(1)
         else:
             return K

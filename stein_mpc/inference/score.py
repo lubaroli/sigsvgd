@@ -3,7 +3,7 @@ from torch.autograd import grad as ag
 from ..kernels import BaseKernel, SignatureKernel
 
 
-class PlanningEstimator:
+class ScoreEstimator:
     def __init__(
         self, kernel, cost_fn, cost_fn_params, scheduler=None, ctx={"device": "cpu"},
     ):
@@ -26,7 +26,7 @@ class PlanningEstimator:
 
     # need score estimator to include trajectory length regularization cost
     def sgd_score(self, x):
-        cost, cost_dict = self.cost_fn(x, *self.cost_fn_params)
+        cost, cost_dict = self.cost_fn(x, **self.cost_fn_params)
         # considering the likelihood is exp(-cost)
         grad_log_p = ag(-cost.sum(), x, retain_graph=True)[0]
         k_xx = torch.eye(x.shape[0], **self.ctx)
@@ -35,11 +35,10 @@ class PlanningEstimator:
         return grad_log_p, score_dict
 
     def _svgd_score(self, x):
-        cost, cost_dict = self.cost_fn(x, *self.cost_fn_params)
+        cost, cost_dict = self.cost_fn(x, **self.cost_fn_params)
         # considering the likelihood is exp(-cost)
         grad_log_p = ag(-cost.sum(), x, retain_graph=True)[0]
         k_xx, grad_k = self.kernel(x, x, compute_grad=True)
-        grad_k = grad_k.sum(0)  # aggregates gradient wrt to first input
         score_dict = {
             "k_xx": k_xx,
             "grad_k": self.scheduler() * grad_k,
@@ -49,11 +48,11 @@ class PlanningEstimator:
         return grad_log_p, score_dict
 
     def _svgd_ag_score(self, x):
-        cost, cost_dict = self.cost_fn(x, *self.cost_fn_params)
+        cost, cost_dict = self.cost_fn(x, **self.cost_fn_params)
         # considering the likelihood is exp(-cost)
         grad_log_p = ag(-cost.sum(), x, retain_graph=True)[0]
         k_xx = self.kernel(x, x.detach(), compute_grad=False)
-        grad_k = -1 * ag(k_xx.sum(), x)[0]
+        grad_k = ag(k_xx.sum(), x)[0]
         score_dict = {
             "k_xx": k_xx,
             "grad_k": self.scheduler() * grad_k,
@@ -63,11 +62,11 @@ class PlanningEstimator:
         return grad_log_p, score_dict
 
     def _pathsig_score(self, x):
-        cost, cost_dict = self.cost_fn(x, *self.cost_fn_params)
+        cost, cost_dict = self.cost_fn(x, **self.cost_fn_params)
         # considering the likelihood is exp(-cost)
         grad_log_p = ag(-cost.sum(), x, retain_graph=True)[0]
         k_xx = self.kernel(x, x.detach())
-        grad_k = -1 * ag(k_xx.sum(), x)[0]  # TODO: Unsdertand why this is needed
+        grad_k = ag(k_xx.sum(), x)[0]
         score_dict = {
             "k_xx": k_xx.detach(),
             "grad_k": self.scheduler() * grad_k.detach(),
