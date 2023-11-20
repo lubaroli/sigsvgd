@@ -53,7 +53,10 @@ class SVGD:
                 distribution or an estimate of the gradient for every particle.""",
             )
         if "k_xx" in kwargs and "grad_k" in kwargs:
-            k_xx, grad_k = kwargs["k_xx"], kwargs["grad_k"].flatten(1)
+            k_xx = kwargs["k_xx"]
+            grad_k = kwargs["grad_k"]
+            if len(grad_k.shape) > 1:
+                grad_k = grad_k.flatten(1)
         else:
             k_xx, grad_k = self._compute_kernel(X, **kwargs)
 

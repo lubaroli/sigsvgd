@@ -98,18 +98,24 @@ def compile_results(path):
             table[(m, v)] = {}
             table[(m, v)][problem] = torch.tensor([])
         for r in res[m].keys():
-            table[(m, "Best")][problem] = torch.cat(
-                [
-                    table[(m, "Best")][problem],
-                    res[m][r]["costs"].min(-1)[0].unsqueeze(0),
-                ]
-            )
-            table[(m, "Length")][problem] = torch.cat(
-                [table[(m, "Length")][problem], res[m][r]["min_len"].unsqueeze(0)]
-            )
-            table[(m, "NLL")][problem] = torch.cat(
-                [table[(m, "NLL")][problem], res[m][r]["costs"].sum(-1).unsqueeze(0)]
-            )
+            try:
+                table[(m, "Best")][problem] = torch.cat(
+                    [
+                        table[(m, "Best")][problem],
+                        res[m][r]["costs"].min(-1)[0].unsqueeze(0),
+                    ]
+                )
+                table[(m, "Length")][problem] = torch.cat(
+                    [table[(m, "Length")][problem], res[m][r]["min_len"].unsqueeze(0)]
+                )
+                table[(m, "NLL")][problem] = torch.cat(
+                    [
+                        table[(m, "NLL")][problem],
+                        res[m][r]["costs"].sum(-1).unsqueeze(0),
+                    ]
+                )
+            except Exception:
+                pass
     for k1 in table.keys():
         for k2 in table[k1].keys():
             val = table[k1][k2]

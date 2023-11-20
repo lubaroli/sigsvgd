@@ -100,7 +100,7 @@ def save_progress(
     return folder_path
 
 
-def to_np(x, dtype=np.float):
+def to_np(x, dtype=float):
     if isinstance(x, list):
         return [v.cpu().numpy().astype(dtype) for v in x]
     else:

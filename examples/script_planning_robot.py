@@ -1,6 +1,8 @@
 import time
 from pathlib import Path
 from dataclasses import dataclass
+import random
+import argparse
 
 import numpy
 import torch
@@ -478,10 +480,10 @@ def run_optimisation(
 
 
 def run_experiment(datapack):
-    problem, seeds = datapack
+    problem, seeds, gpu_i, args = datapack
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    assert device == "cuda"
+    # device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = f"cuda:{gpu_i}"
 
     methods = ["pathsig", "svgd", "sgd"]
     robot = PandaRobot(device=device)
@@ -506,7 +508,7 @@ def run_experiment(datapack):
 
     hyperparams = {
         # "n_iter": 10,
-        'n_iter': 500,
+        "n_iter": 500,
         "batch": 20,
         "length": 5,
         # "channels": None,
@@ -530,6 +532,7 @@ def run_experiment(datapack):
 
     # ========== Experiment Setup ==========
     ymd_time = time.strftime("%Y%m%d-%H%M%S")
+    numpy.random.seed(seeds[0])
     req_inds = numpy.random.permutation(len(scene.request_paths))[:n_requests]
     req_paths = numpy.array(scene.request_paths)[req_inds]
     for req_i, req_path in zip(req_inds, req_paths):
@@ -542,10 +545,16 @@ def run_experiment(datapack):
             for method in methods:
                 set_seed(seed)
                 print(f"Episode {ep_num + 1} - seed {seed}: optimizing with {method}")
-                INDEX = 0
-                experiment_path = Path(
-                    f"data/local/robot-{problem}-{ymd_time}/{req_i}-{seed}/{method}"
-                )
+                if args.use_ymd_in_saved_folder:
+                    experiment_path = Path(
+                        f"data/local/robot-{problem}-{ymd_time}/{req_i}-{seed}/{method}"
+                    )
+                else:
+                    experiment_path = Path(
+                        f"data/local/robot-{problem}/{req_i}-{seed}/{method}"
+                    )
+                if experiment_path.exists():
+                    continue
                 plot_path = experiment_path / "plots"
 
                 exp_datapack = ExperimentDataPack(
@@ -566,15 +575,35 @@ def run_experiment(datapack):
                 )
 
 
+def gpu_gen():
+    while True:
+        for i in range(0, args.num_gpus):
+            yield i
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--num-processes", default=1, type=int)
+parser.add_argument("--num-gpus", default=1, type=int)
+parser.add_argument(
+    "--use-ymd-in-saved-folder",
+    default=False,
+    action="store_true",
+    help="Not setting this flag ensure multiple processes will save to the same folder.",
+)
+
 if __name__ == "__main__":
-    NUM_PROCESSES = 5
+    args = parser.parse_args()
+
+    if args.use_ymd_in_saved_folder and (args.num_processes > 1 or args.num_gpus > 1):
+        raise RuntimeError("Are you sure??")
 
     n_episodes = 5
     set_seed()
     seeds = generate_seeds(n_episodes)
 
     problems = list(robot_scene.tag_names)
-    # problems = problems[2:3]
+    print(problems)
+    random.shuffle(problems)
     print("\n")
     print(
         """
@@ -583,14 +612,20 @@ if __name__ == "__main__":
     =====================================
     """
     )
-    if NUM_PROCESSES <= 1:
+    if args.num_processes <= 1:
         for problem in problems:
-            run_experiment((problem, seeds))
+            run_experiment((problem, seeds, 0, args))
     else:
         import torch.multiprocessing as mp
 
+        # import multiprocessing as mp
+
         mp.set_start_method("spawn")
 
-        with mp.Pool(processes=NUM_PROCESSES) as p:  # Parallelizing over 2 GPUs
-            results = p.map(run_experiment, ((p, seeds) for p in problems))
+        with mp.Pool(processes=args.num_processes) as p:  # Parallelizing over 2 GPUs
+            # print(run_experiment, list((prob, seeds, gpu) for prob, gpu in zip(problems, gpu_gen())))
+            results = p.map(
+                run_experiment,
+                ((prob, seeds, gpu, args) for prob, gpu in zip(problems, gpu_gen())),
+            )
         print(results)

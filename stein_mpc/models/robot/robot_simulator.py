@@ -27,6 +27,7 @@ class Robot:
         p_client=p.DIRECT,
         has_gravity=False,
     ):
+        self.device = device
         self.urdf_path = urdf_path
         self.target_link_names = target_link_names
         self.target_joint_names = target_joint_names

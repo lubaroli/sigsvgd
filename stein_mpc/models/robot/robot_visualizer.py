@@ -40,7 +40,7 @@ class RobotVisualizer:
         # create an array that denote the end of sequence
         assert len(joints_xs.shape) == 3
         array_of_None = np.empty(
-            (joints_xs.shape[0], 1, joints_xs.shape[2]), dtype=np.object
+            (joints_xs.shape[0], 1, joints_xs.shape[2]), dtype=object
         )
         array_of_None.fill(None)
 
