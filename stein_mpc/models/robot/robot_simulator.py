@@ -9,6 +9,8 @@ from differentiable_robot_model import DifferentiableRobotModel
 
 from stein_mpc.utils.helper import get_project_root
 
+from . import pybullet_collision_check
+
 WorkSpaceType = torch.Tensor
 ConfigurationSpaceType = torch.Tensor
 
@@ -216,8 +218,17 @@ class Robot:
             lowers, uppers = torch.Tensor(lowers), torch.Tensor(uppers)
         return lowers, uppers
 
-    def get_collision_functor(
+    def get_colliding_points_functor(self, **kwargs):
+        return self.__get_collision_base_functor(_return_closest_points=True, **kwargs)
+
+    def get_collision_functor(self, **kwargs):
+        return self.__get_collision_base_functor(
+            _return_closest_points=False, **kwargs
+        )
+
+    def __get_collision_base_functor(
         self,
+        _return_closest_points,
         obstacles: Optional[List[int]] = None,
         attachments=None,
         self_collisions: bool = True,
@@ -226,7 +237,7 @@ class Robot:
         use_aabb=False,
         cache=False,
         max_distance=pu.MAX_DISTANCE,
-        check_joint_limits=True,
+        check_joint_limits=False,
         **kwargs,
     ):
         if custom_limits is None:
@@ -265,42 +276,29 @@ class Robot:
         else:
             limits_fn = lambda *args: False
 
-        def collision_fn(q, verbose=False):
-            if limits_fn(q):
+        def check_aabb_overlap(aabb1, aabb2):
+            if not use_aabb:
+                # skip guarding against aabb
                 return True
-            pu.set_joint_positions(self.pyb_robot_id, joint_indexes, q)
-            for attachment in attachments:
-                attachment.assign()
-            # wait_for_duration(1e-2)
-            get_moving_aabb = pu.cached_fn(
-                pu.get_buffered_aabb,
-                cache=True,
-                max_distance=max_distance / 2.0,
-                **kwargs,
-            )
+            return pu.aabb_overlap(aabb1, aabb2)
 
-            for link1, link2 in check_link_pairs:
-                # Self-collisions should not have the max_distance parameter
-                if (
-                    not use_aabb
-                    or pu.aabb_overlap(
-                        get_moving_aabb(self.pyb_robot_id),
-                        get_moving_aabb(self.pyb_robot_id),
-                    )
-                ) and pu.pairwise_link_collision(
-                    self.pyb_robot_id, link1, self.pyb_robot_id, link2
-                ):  # , **kwargs):
-                    return True
-
-            for body1, body2 in pu.product(moving_bodies, obstacles):
-                if (
-                    not use_aabb
-                    or pu.aabb_overlap(get_moving_aabb(body1), get_obstacle_aabb(body2))
-                ) and pu.pairwise_collision(body1, body2, **kwargs):
-                    return True
-            return False
-
-        return collision_fn
+        kwargs_dict = dict(
+            pyb_robot_id=self.pyb_robot_id,
+            moving_bodies=moving_bodies,
+            obstacles=obstacles,
+            attachments=attachments,
+            max_distance=max_distance,
+            limits_fn=limits_fn,
+            get_obstacle_aabb=get_obstacle_aabb,
+            joint_indexes=joint_indexes,
+            check_aabb_overlap=check_aabb_overlap,
+            check_link_pairs=check_link_pairs,
+            **kwargs,
+        )
+        if _return_closest_points:
+            return pybullet_collision_check.get_colliding_points_functor(**kwargs_dict)
+        else:
+            return pybullet_collision_check.get_collision_functor(**kwargs_dict)
 
     def destroy(self):
         p.disconnect(self.physicsClient)
