@@ -195,9 +195,9 @@ if __name__ == "__main__":
                 for depths in contact_distances
             ]
             df_json[f"{opt_method}__md_μ"] = -np.mean(max_depths)
-            df_json[f"{opt_method}__md_σ"] = -np.std(max_depths)
-            df_json[f"{opt_method}__cr_μ"] = -np.mean(colfree)
-            df_json[f"{opt_method}__cr_σ"] = -np.std(colfree)
+            df_json[f"{opt_method}__md_σ"] = np.std(max_depths)
+            df_json[f"{opt_method}__cr_μ"] = np.mean(colfree)
+            df_json[f"{opt_method}__cr_σ"] = np.std(colfree)
 
             # print(
             #     f"{:>5.2f} ({np.std(max_depths):.2f}) & {np.mean(colfree):.2f} ({np.std(colfree):.2f}) ",

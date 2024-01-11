@@ -1,3 +1,72 @@
+import torch
+
+torch.randn(5).to("cuda")
+
+
+import numpy as np
+from scipy.spatial.distance import cdist
+
+
+def reparameterised_path_and_eval_at_new_interval(points, eval_t):
+    """
+    Given an numpy of poitns:
+    e.g.
+        points = np.array([
+            [0.0, 0.0, 0.0],
+            [1.0, 1.0, 1.0],
+            [2.0, 2.0, 2.0],
+            [3.0, 3.0, 3.0],
+            [4.0, 4.0, 4.0]
+        ])
+
+    and a list of eval t
+    e.g.
+        [0, 0.5, 0.95, 1]
+
+    Returns a new numpy array that contains points by
+    treating the given path as a reparameterised path
+    with t = 0 to 1 (with piece-wise path length as
+    the distance measurement).
+    e.g.
+        [[0.  0.  0. ]
+        [2.  2.  2. ]
+        [3.8 3.8 3.8]
+        [4.  4.  4. ]]
+    """
+    # Calculate the distances between consecutive points
+    distances = np.sqrt(np.sum(np.diff(points, axis=0) ** 2, axis=1))
+    total_distance = np.sum(distances)
+
+    # Calculate cumulative distance
+    cumulative_distances = np.insert(np.cumsum(distances), 0, 0)
+
+    # Normalize cumulative distances to [0, 1]
+    normalized_distances = cumulative_distances / total_distance
+
+    # Function to find the reparameterized point at a specific parameter value
+    def find_point_at_parameter(parameter):
+        idx = np.argmax(normalized_distances >= parameter)
+        if idx == 0:
+            return points[0]
+        elif idx == len(points):
+            return points[-1]
+        else:
+            t = (parameter - normalized_distances[idx - 1]) / (
+                normalized_distances[idx] - normalized_distances[idx - 1]
+            )
+            return points[idx - 1] + t * (points[idx] - points[idx - 1])
+
+    sampled_points = []
+    for t in eval_t:
+        if t < 0 or t > 1:
+            raise ValueError()
+        sampled_points.append(find_point_at_parameter(t))
+    return np.array(sampled_points)
+
+
+#########################################
+
+
 import time
 from pathlib import Path
 from dataclasses import dataclass
@@ -22,6 +91,10 @@ from stein_mpc.models.robot_learning import (
 )
 from stein_mpc.utils.helper import generate_seeds, get_project_root, set_seed
 from stein_mpc.utils.scheduler import CosineScheduler
+
+from typing import Callable
+
+import sbp_env
 
 
 @dataclass
@@ -357,7 +430,7 @@ def batch_cost_function(
 
 
 def run_optimisation(
-    q_initial, q_target, exp_datapack: ExperimentDataPack, method="pathsig", hp={}
+    _q_initial, _q_target, exp_datapack: ExperimentDataPack, method="pathsig", hp={}
 ):
     limit_lowers, limit_uppers = exp_datapack.robot.get_joints_limits()
     batch, length, channels = hp["batch"], hp["length"], hp["channels"]
@@ -374,13 +447,63 @@ def run_optimisation(
     # )
     # x = inter_knots[None, ...] + eps
     # x = torch.clamp(x, min=limit_lowers, max=limit_uppers).to(device)
-    q_initial = q_initial.to(exp_datapack.robot.device)
-    q_target = q_target.to(exp_datapack.robot.device)
+    q_initial = _q_initial.to(exp_datapack.robot.device)
+    q_target = _q_target.to(exp_datapack.robot.device)
 
-    x = (
-        torch.rand(batch, length - 2, channels) * (limit_uppers - limit_lowers)
-        + limit_lowers
-    ).to(exp_datapack.robot.device)
+    is_colliding_with_env = exp_datapack.robot.get_collision_functor(
+        self_collisions=True,
+        # check_joint_limits=True,
+    )
+
+    def is_free_functor(x):
+        return not is_colliding_with_env(x)
+
+    x = np.zeros([batch, length - 2, channels])
+
+    import tqdm
+
+    for i in tqdm.trange(batch, desc="filling batch"):
+        RETRY = 10
+        for _ in range(RETRY):
+            engine = sbp_env.engine.BlackBoxEngine(
+                collision_checking_functor=is_free_functor,
+                lower_limits=limit_lowers.numpy(),
+                upper_limits=limit_uppers.numpy(),
+                cc_epsilon=0.15,  # collision check resolution
+            )
+            planning_args = sbp_env.generate_args(
+                planner_id="birrt",
+                engine=engine,
+                start_pt=_q_initial.numpy(),
+                goal_pt=_q_target.numpy(),
+                first_solution=True,
+                epsilon=0.5,
+                max_number_nodes=600,
+            )
+
+            env = sbp_env.env.Env(args=planning_args)
+
+            env.run()
+            sol = env.get_solution_path(as_array=True)
+            if sol is not None and len(sol) > 0:
+                break
+        if sol is None or len(sol) == 0:
+            # fallback
+            sol = np.vstack(
+                [
+                    _q_initial.numpy(),
+                    _q_target.numpy(),
+                ]
+            )
+
+        # extract the middle knot at fixed interval
+        mid_knot = reparameterised_path_and_eval_at_new_interval(
+            sol, np.linspace(0, 1, length)[1:-1]
+        )
+
+        x[i, ...] = mid_knot
+
+    x = torch.Tensor(x).to(exp_datapack.robot.device)
 
     if method == "svgd":
         if "svgd_bw" in hp:
@@ -479,16 +602,26 @@ def run_optimisation(
     )
 
 
+import torch
+
+torch.rand(5).to("cuda")
+
+
 def run_experiment(datapack):
     problem, seeds, gpu_i, args = datapack
 
     # device = "cuda" if torch.cuda.is_available() else "cpu"
     device = f"cuda:{gpu_i}"
 
-    methods = ["pathsig", "svgd", "sgd"]
+    methods = [
+        # "pathsig",
+        "svgd",
+        # "sgd",
+    ]
     robot = PandaRobot(device=device)
 
     scene = robot_scene.RobotScene(robot, problem)
+
     try:
         occmap = continuous_occupancy_map.load_trained_model(scene.weight_path)
         occmap.to(device)
@@ -595,7 +728,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.use_ymd_in_saved_folder and (args.num_processes > 1 or args.num_gpus > 1):
-        raise RuntimeError("Are you sure??")
+        raise RuntimeError(
+            "Are you sure?? Each process will save to different folder..."
+        )
 
     n_episodes = 5
     set_seed()
