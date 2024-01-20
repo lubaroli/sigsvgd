@@ -430,7 +430,12 @@ def batch_cost_function(
 
 
 def run_optimisation(
-    _q_initial, _q_target, exp_datapack: ExperimentDataPack, method="pathsig", hp={}
+    _q_initial,
+    _q_target,
+    exp_datapack: ExperimentDataPack,
+    method="pathsig",
+    hp={},
+    knots=None,
 ):
     limit_lowers, limit_uppers = exp_datapack.robot.get_joints_limits()
     batch, length, channels = hp["batch"], hp["length"], hp["channels"]
@@ -458,52 +463,14 @@ def run_optimisation(
     def is_free_functor(x):
         return not is_colliding_with_env(x)
 
-    x = np.zeros([batch, length - 2, channels])
-
     import tqdm
 
-    for i in tqdm.trange(batch, desc="filling batch"):
-        RETRY = 10
-        for _ in range(RETRY):
-            engine = sbp_env.engine.BlackBoxEngine(
-                collision_checking_functor=is_free_functor,
-                lower_limits=limit_lowers.numpy(),
-                upper_limits=limit_uppers.numpy(),
-                cc_epsilon=0.15,  # collision check resolution
-            )
-            planning_args = sbp_env.generate_args(
-                planner_id="birrt",
-                engine=engine,
-                start_pt=_q_initial.numpy(),
-                goal_pt=_q_target.numpy(),
-                first_solution=True,
-                epsilon=0.5,
-                max_number_nodes=600,
-            )
-
-            env = sbp_env.env.Env(args=planning_args)
-
-            env.run()
-            sol = env.get_solution_path(as_array=True)
-            if sol is not None and len(sol) > 0:
-                break
-        if sol is None or len(sol) == 0:
-            # fallback
-            sol = np.vstack(
-                [
-                    _q_initial.numpy(),
-                    _q_target.numpy(),
-                ]
-            )
-
-        # extract the middle knot at fixed interval
-        mid_knot = reparameterised_path_and_eval_at_new_interval(
-            sol, np.linspace(0, 1, length)[1:-1]
-        )
-
-        x[i, ...] = mid_knot
-
+    x = np.zeros([batch, length - 2, channels])
     x = torch.Tensor(x).to(exp_datapack.robot.device)
+
+    x[:] = knots[:, 1:-1, :]
+
+    x = x.to(exp_datapack.robot.device)
 
     if method == "svgd":
         if "svgd_bw" in hp:
@@ -615,8 +582,8 @@ def run_experiment(datapack):
 
     methods = [
         # "pathsig",
-        "svgd",
-        # "sgd",
+        # "svgd",
+        "sgd",
     ]
     robot = PandaRobot(device=device)
 
@@ -662,6 +629,7 @@ def run_experiment(datapack):
         },
         # "cost_weights": [1.5, 10.0, 4.0, 1.0,],
     }
+    DATAPACK = torch.load("/home/tin/saved_knots.pt")
 
     # ========== Experiment Setup ==========
     ymd_time = time.strftime("%Y%m%d-%H%M%S")
@@ -699,12 +667,18 @@ def run_experiment(datapack):
 
                 if not plot_path.exists():
                     plot_path.mkdir(parents=True)
+
+                # load knots
+                knots = DATAPACK[f"robot-{problem}"][f"{req_i}-{seed}"]["knots"]
+                # print(knots,problem, seeds)
+                # exit()
                 run_optimisation(
                     q_start,
                     q_target,
                     exp_datapack=exp_datapack,
                     method=method,
                     hp=hyperparams,
+                    knots=knots,
                 )
 
 
