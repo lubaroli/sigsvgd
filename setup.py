@@ -53,7 +53,24 @@ classifiers = [
 
 python_requires = ">=3.5, <4"
 
-install_requires = ["torch>=1.5.0"]
+install_requires = [
+    "torch>=1.5.0",
+    "plotly>=5",
+    "pandas",
+    "kaleido",
+    "altair",
+    "seaborn",
+    "numpy-quaternion",
+    "cython",
+    "matplotlib",
+    "pytorch_lightning==2.2.0",
+    "differentiable-robot-model @ git+https://github.com/soraxas/differentiable-robot-model@improved-performance#egg=differentiable-robot-model-0.1.1-6",
+    "pybullet-planning @ git+https://github.com/soraxas/pybullet-planning@f580bad01479d657b9ee549b440e33706b10318d#egg=pybullet-planning-0.0.1",
+    "torchcubicspline @ git+https://github.com/patrick-kidger/torchcubicspline@d16c6bf5b63d03dbf2977c70e19a320653b5e4a8#egg=torchcubicspline-0.0.3",
+    "sigkernel @ git+https://github.com/crispitagorico/sigkernel@3b2373982e12b3d499a80228311a04debcc1bea1#egg=sigkernel-0.0.1",
+    "gpytorch==1.11",
+    "tqdm",
+]
 
 setuptools.setup(
     name=name,
