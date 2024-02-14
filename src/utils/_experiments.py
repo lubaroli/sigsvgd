@@ -1,6 +1,6 @@
 import gym
 import torch
-from stein_mpc.models.particle import ParticleModel
+from src.models.particle import ParticleModel
 from tqdm import trange
 
 from ..models.pendulum import PendulumModel
@@ -16,10 +16,14 @@ def run_gym_simulation(
     # simulation breaks
     sim_dict = {}
     sim_dict["states"] = torch.full(
-        (steps + 1, controller.dim_s), fill_value=float("nan"), dtype=torch.float,
+        (steps + 1, controller.dim_s),
+        fill_value=float("nan"),
+        dtype=torch.float,
     )
     sim_dict["actions"] = torch.full(
-        (steps, controller.dim_a), fill_value=float("nan"), dtype=torch.float,
+        (steps, controller.dim_a),
+        fill_value=float("nan"),
+        dtype=torch.float,
     )
     sim_dict["costs"] = torch.full(
         (steps, 1), fill_value=float("nan"), dtype=torch.float
@@ -91,10 +95,14 @@ def run_maze_experiment(
     # simulation breaks
     sim_dict = {}
     sim_dict["states"] = torch.full(
-        (steps + 1, controller.dim_s), fill_value=float("nan"), dtype=torch.float,
+        (steps + 1, controller.dim_s),
+        fill_value=float("nan"),
+        dtype=torch.float,
     )
     sim_dict["actions"] = torch.full(
-        (steps, controller.dim_a), fill_value=float("nan"), dtype=torch.float,
+        (steps, controller.dim_a),
+        fill_value=float("nan"),
+        dtype=torch.float,
     )
     sim_dict["costs"] = torch.full(
         (steps, 1), fill_value=float("nan"), dtype=torch.float

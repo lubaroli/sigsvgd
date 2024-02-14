@@ -4,8 +4,8 @@ import torch
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from torch import optim, nn, utils
 
-from stein_mpc.models.robot.robot_simulator import PandaRobot
-from stein_mpc.utils.helper import get_project_root
+from src.models.robot.robot_simulator import PandaRobot
+from src.utils.helper import get_project_root
 
 
 class ContinuousSelfCollisionPredictor(nn.Module):
@@ -126,9 +126,16 @@ def train(data_fname, n_dimension, save_path=None):
     ##########################################
     batch_size = 1024
     train_set = utils.data.DataLoader(
-        train_set, batch_size=batch_size, shuffle=True, num_workers=12,
+        train_set,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=12,
     )
-    valid_set = utils.data.DataLoader(valid_set, batch_size=batch_size, num_workers=12,)
+    valid_set = utils.data.DataLoader(
+        valid_set,
+        batch_size=batch_size,
+        num_workers=12,
+    )
     trainer.fit(model, train_set, valid_set)
     if save_path is not None:
         trainer.save_checkpoint(save_path)
