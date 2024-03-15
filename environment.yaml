@@ -21,5 +21,6 @@ dependencies:
   - pip:
       - signatory==1.2.6.1.9.0
       - cython
+      - pytorch_lightning==2.2.0
       - git+https://github.com/crispitagorico/sigkernel.git
       - git+https://github.com/patrick-kidger/torchcubicspline.git
