@@ -1,8 +1,3 @@
-"""
-Questions:
-- How to choose lengthscale for Path Signature?
-"""
-
 import time
 from pathlib import Path
 
@@ -11,10 +6,10 @@ import matplotlib.pyplot as plt
 import scipy.stats.qmc as qmc
 import torch
 import torch.distributions as dist
-from stein_mpc.inference import SVGD, PlanningEstimator
-from stein_mpc.kernels import GaussianKernel, SignatureKernel
-from stein_mpc.utils.helper import generate_seeds, set_seed
-from stein_mpc.utils.scheduler import CosineScheduler
+from src.inference import SVGD, ScoreEstimator
+from src.kernels import GaussianKernel, SignatureKernel
+from src.utils.helper import generate_seeds, set_seed
+from src.utils.scheduler import CosineScheduler
 from torch.autograd import grad as ag
 from torchcubicspline import NaturalCubicSpline, natural_cubic_spline_coeffs
 from tqdm import trange
@@ -146,13 +141,13 @@ def run_exp(hp, log_p, x, path, id, render=False, step=1):
     else:
         plot_title = "Trajectory Optimization with "
 
-    cost_fn_params = [
-        log_p,
-        start_pose,
-        target_pose,
-        100,  # timesteps
-        [1, 1],  # cost weights for collision and length
-    ]
+    cost_fn_params = {
+        "log_p": log_p,
+        "start_pose": start_pose,
+        "target_pose": target_pose,
+        "timesteps": 100,  # timesteps
+        "w": [1, 1],  # cost weights for collision and length
+    }
 
     # Run Path Signature optimization
     ####################################################################################
@@ -162,7 +157,7 @@ def run_exp(hp, log_p, x, path, id, render=False, step=1):
         bandwidth_fn=hp["ps_lengthscale"], depth=hp["dyadic_order"]
     )
     stein_sampler = SVGD(kernel, **hp["optimizer_args"])
-    estimator = PlanningEstimator(
+    estimator = ScoreEstimator(
         kernel, batch_cost_fn, cost_fn_params, hp["scheduler"], ctx
     )
     data_dict, _ = stein_sampler.optimize(
@@ -214,7 +209,7 @@ def run_exp(hp, log_p, x, path, id, render=False, step=1):
     particles = x.clone()
     kernel = GaussianKernel(bandwidth_fn=hp["lengthscale"])
     stein_sampler = SVGD(kernel, **hp["optimizer_args"])
-    estimator = PlanningEstimator(
+    estimator = ScoreEstimator(
         kernel, batch_cost_fn, cost_fn_params, hp["scheduler"], ctx
     )
     data_dict, _ = stein_sampler.optimize(

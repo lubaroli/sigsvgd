@@ -8,13 +8,13 @@ import torch
 import torch.optim as optim
 import tqdm
 
-from stein_mpc.models.robot import robot_scene
-from stein_mpc.models.robot.robot_simulator import PandaRobot
-from stein_mpc.models.robot_learning import (
+from src.models.robot import robot_scene
+from src.models.robot.robot_simulator import PandaRobot
+from src.models.robot_learning import (
     continuous_occupancy_map,
     continuous_self_collision_pred,
 )
-from stein_mpc.utils.helper import get_project_root
+from src.utils.helper import get_project_root
 
 parser = argparse.ArgumentParser()
 parser.add_argument(

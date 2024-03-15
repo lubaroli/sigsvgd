@@ -5,9 +5,9 @@ import numpy as np
 import torch
 import tqdm
 
-from stein_mpc.models.robot import robot_simulator, robot_scene
-from stein_mpc.models.robot import robot_visualizer
-from stein_mpc.models.robot.robot_simulator import PandaRobot
+from src.models.robot import robot_simulator, robot_scene
+from src.models.robot import robot_visualizer
+from src.models.robot.robot_simulator import PandaRobot
 
 THIS_DIR = os.path.dirname(os.path.realpath(__file__))
 
@@ -24,7 +24,7 @@ robot_visualizer = robot_visualizer.RobotVisualizer(robot)
 ############################################################
 # load NN model and display prob
 
-from stein_mpc.models.robot_learning import continuous_occupancy_map
+from src.models.robot_learning import continuous_occupancy_map
 
 occmap = continuous_occupancy_map.load_trained_model(scene.weight_path)
 

@@ -7,10 +7,10 @@ import torch
 from torch.autograd import grad as ag
 
 import sigkernel
-from stein_mpc.inference import SVGD
-from stein_mpc.models.robot import robot_scene, robot_visualizer
-from stein_mpc.models.robot.robot_simulator import PandaRobot
-from stein_mpc.utils.helper import generate_seeds, set_seed
+from src.inference import SVGD
+from src.models.robot import robot_scene, robot_visualizer
+from src.models.robot.robot_simulator import PandaRobot
+from src.utils.helper import generate_seeds, set_seed
 
 THIS_DIR = os.path.dirname(os.path.realpath(__file__))
 
@@ -35,7 +35,7 @@ robot_visualizer = robot_visualizer.RobotVisualizer(robot)
 ############################################################
 # load NN model and display prob
 
-from stein_mpc.models.robot_learning import continuous_occupancy_map
+from src.models.robot_learning import continuous_occupancy_map
 
 try:
     occmap = continuous_occupancy_map.load_trained_model(scene.weight_path)

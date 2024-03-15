@@ -1,4 +1,4 @@
-from stein_mpc.utils.scheduler import (
+from src.utils.scheduler import (
     CosineScheduler,
     FactorScheduler,
     SquareRootScheduler,

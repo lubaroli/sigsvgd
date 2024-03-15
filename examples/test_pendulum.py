@@ -1,10 +1,10 @@
 import math
 
 import torch
-from stein_mpc.controllers import DuSt, DISCO
-from stein_mpc.kernels import ScaledGaussianKernel
-from stein_mpc.models import PendulumModel
-from stein_mpc.utils._experiments import run_gym_simulation
+from src.controllers import DuSt, DISCO
+from src.kernels import ScaledGaussianKernel
+from src.models import PendulumModel
+from src.utils._experiments import run_gym_simulation
 
 
 def inst_cost(states, controls=None, n_pol=1, debug=None):

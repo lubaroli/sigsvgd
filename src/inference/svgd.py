@@ -80,7 +80,8 @@ class SVGD:
             score = score + log_prior_grad.detach().flatten(1)
             X.detach_()
 
-        velocity = (k_xx @ score - grad_k) / X.shape[0]
+        # velocity = (k_xx @ score - grad_k) / X.shape[0]
+        velocity = (score.T @ k_xx - grad_k.T) / X.shape[0]
         velocity = -velocity.reshape(X.shape)
 
         iter_dict = {"k_xx": k_xx, "grad_k": grad_k, "loss": loss}
