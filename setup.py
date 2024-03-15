@@ -54,7 +54,8 @@ classifiers = [
 python_requires = ">=3.5, <4"
 
 install_requires = [
-    "torch>=1.5.0",
+    "torch==1.9.0",
+    "signatory==1.2.6.1.9.0",
     "plotly>=5",
     "pandas",
     "kaleido",
