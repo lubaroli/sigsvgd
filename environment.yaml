@@ -9,7 +9,7 @@ dependencies:
   - gym
   - matplotlib
   - moviepy=1.0.1
-  - python=3.9.6
+  - python=3.9.7
   - pytorch=1.9.0
   - pyyaml
   - seaborn
