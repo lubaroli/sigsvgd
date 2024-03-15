@@ -13,10 +13,11 @@ Create a virtual environment for the required packages. We suggest `conda` and p
 Once the environment is created, run the following command to install the local resources.
 
 ```sh
-$ conda create -f requirements.yaml
+$ conda env create -f environment.yaml
+$ conda activate sigsvgd
 $ pip install -e .
 ```
-> **NOTE**: In macOs, the following extra are required to install `signatory`.
+> **NOTE**: In macOs, the following extra steps are required to install `signatory`.
 >
 >```sh
 >export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
