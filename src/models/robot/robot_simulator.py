@@ -7,7 +7,7 @@ import pybullet_tools.utils as pu
 import torch
 from differentiable_robot_model import DifferentiableRobotModel
 
-from stein_mpc.utils.helper import get_project_root
+from src.utils.helper import get_project_root
 
 from . import pybullet_collision_check
 
@@ -222,9 +222,7 @@ class Robot:
         return self.__get_collision_base_functor(_return_closest_points=True, **kwargs)
 
     def get_collision_functor(self, **kwargs):
-        return self.__get_collision_base_functor(
-            _return_closest_points=False, **kwargs
-        )
+        return self.__get_collision_base_functor(_return_closest_points=False, **kwargs)
 
     def __get_collision_base_functor(
         self,

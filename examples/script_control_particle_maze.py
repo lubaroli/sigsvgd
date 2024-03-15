@@ -5,13 +5,13 @@ import torch
 import torch.distributions as dist
 import yaml
 from sigkernel import RBFKernel, SigKernel
-from stein_mpc.controllers import DuSt
-from stein_mpc.inference import likelihoods
-from stein_mpc.inference.mpf import MPF
-from stein_mpc.kernels import GaussianKernel, ScaledGaussianKernel
-from stein_mpc.models import ParticleModel
-from stein_mpc.utils.helper import generate_seeds, save_progress, set_seed
-from stein_mpc.utils.plots import create_video_from_plots, plot_particles
+from src.controllers import DuSt
+from src.inference import likelihoods
+from src.inference.mpf import MPF
+from src.kernels import GaussianKernel, ScaledGaussianKernel
+from src.models import ParticleModel
+from src.utils.helper import generate_seeds, save_progress, set_seed
+from src.utils.plots import create_video_from_plots, plot_particles
 from tqdm import trange
 
 

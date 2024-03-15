@@ -10,18 +10,18 @@ from torch.autograd import grad as ag
 from torchcubicspline import NaturalCubicSpline, natural_cubic_spline_coeffs
 from gpytorch.priors import SmoothedBoxPrior
 
-from stein_mpc.inference import SVGD
-from stein_mpc.kernels import SignatureKernel, GaussianKernel
-from stein_mpc.models.robot import robot_scene, robot_visualizer
-from stein_mpc.models.robot import robot_visualizer, robot_scene
-from stein_mpc.models.robot.robot_scene import PathRequest
-from stein_mpc.models.robot.robot_simulator import PandaRobot
-from stein_mpc.models.robot_learning import (
+from src.inference import SVGD
+from src.kernels import SignatureKernel, GaussianKernel
+from src.models.robot import robot_scene, robot_visualizer
+from src.models.robot import robot_visualizer, robot_scene
+from src.models.robot.robot_scene import PathRequest
+from src.models.robot.robot_simulator import PandaRobot
+from src.models.robot_learning import (
     continuous_occupancy_map,
     continuous_self_collision_pred,
 )
-from stein_mpc.utils.helper import generate_seeds, get_project_root, set_seed
-from stein_mpc.utils.scheduler import CosineScheduler
+from src.utils.helper import generate_seeds, get_project_root, set_seed
+from src.utils.scheduler import CosineScheduler
 
 
 @dataclass

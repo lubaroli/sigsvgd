@@ -11,8 +11,8 @@ import pybullet_tools.utils as pu
 import yaml
 from scipy.interpolate import interp1d
 
-from stein_mpc.models.robot.robot_simulator import Robot, ConfigurationSpaceType
-from stein_mpc.utils.helper import get_project_root
+from src.models.robot.robot_simulator import Robot, ConfigurationSpaceType
+from src.utils.helper import get_project_root
 
 this_directory = Path(path.abspath(path.dirname(__file__)))
 
@@ -345,7 +345,7 @@ class RobotScene:
                 # base frame
                 pose = Pose(
                     obj["pose"]["position"],
-                    obj["pose"]["orientation"]
+                    obj["pose"]["orientation"],
                     # Quaternion([0,0,0,1])
                 )
                 # transform from the base frame
@@ -370,7 +370,7 @@ class RobotScene:
                 # base frame
                 pose = Pose(
                     obj["pose"]["position"],
-                    obj["pose"]["orientation"]
+                    obj["pose"]["orientation"],
                     # Quaternion([0,0,0,1])
                 )
 

@@ -2,8 +2,8 @@ import numpy as np
 import plotly.graph_objects as go
 import torch
 
-from stein_mpc.models.robot import robot_visualizer
-from stein_mpc.models.robot.robot_simulator import PandaRobot
+from src.models.robot import robot_visualizer
+from src.models.robot.robot_simulator import PandaRobot
 
 robot = PandaRobot()
 robot.print_info()

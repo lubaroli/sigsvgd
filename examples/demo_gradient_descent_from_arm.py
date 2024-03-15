@@ -1,10 +1,10 @@
 import numpy as np
 import torch
 
-from stein_mpc.models.robot import robot_scene, robot_visualizer
-from stein_mpc.models.robot.robot_simulator import PandaRobot
-from stein_mpc.models.robot_learning import continuous_occupancy_map
-from stein_mpc.utils.helper import get_project_root
+from src.models.robot import robot_scene, robot_visualizer
+from src.models.robot.robot_simulator import PandaRobot
+from src.models.robot_learning import continuous_occupancy_map
+from src.utils.helper import get_project_root
 
 probject_root = get_project_root()
 

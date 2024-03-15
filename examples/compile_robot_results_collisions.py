@@ -12,10 +12,10 @@ from torchcubicspline import NaturalCubicSpline, natural_cubic_spline_coeffs
 import tqdm
 import pickle
 
-from stein_mpc.models.robot import robot_scene
-from stein_mpc.models.robot.robot_scene import Trajectory, JointState, PathRequest
-from stein_mpc.models.robot.robot_simulator import PandaRobot
-from stein_mpc.utils.helper import get_project_root
+from src.models.robot import robot_scene
+from src.models.robot.robot_scene import Trajectory, JointState, PathRequest
+from src.models.robot.robot_simulator import PandaRobot
+from src.utils.helper import get_project_root
 
 this_directory = Path(path.abspath(path.dirname(__file__)))
 sys.path.insert(0, str(this_directory / ".."))

@@ -1,5 +1,5 @@
 import torch
-from stein_mpc.kernels import PathSigKernel
+from src.kernels import PathSigKernel
 
 
 torch.random.manual_seed(0)

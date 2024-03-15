@@ -4,9 +4,9 @@ import pandas as pd
 import torch
 from tqdm import tqdm
 
-from stein_mpc.models.robot import robot_scene
-from stein_mpc.models.robot.robot_simulator import PandaRobot
-from stein_mpc.models.robot_learning import (
+from src.models.robot import robot_scene
+from src.models.robot.robot_simulator import PandaRobot
+from src.models.robot_learning import (
     continuous_occupancy_map,
     continuous_self_collision_pred,
 )

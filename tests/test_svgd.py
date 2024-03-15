@@ -3,11 +3,11 @@ import time
 import torch
 import torch.distributions as dist
 from gpytorch.priors import SmoothedBoxPrior
-from stein_mpc.inference.svgd import SVGD, ScaledSVGD
-from stein_mpc.kernels import ScaledGaussianKernel
-from stein_mpc.LBFGS import FullBatchLBFGS
-from stein_mpc.utils.plots import create_2d_particles_movie
-from stein_mpc.models.environment import star_gaussian
+from src.inference.svgd import SVGD, ScaledSVGD
+from src.kernels import ScaledGaussianKernel
+from src.LBFGS import FullBatchLBFGS
+from src.utils.plots import create_2d_particles_movie
+from src.models.environment import star_gaussian
 
 # torch.random.manual_seed(42)
 # torch.set_default_dtype(torch.float64)
