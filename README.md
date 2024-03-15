@@ -16,6 +16,7 @@ Once the environment is created, run the following command to install the local 
 $ conda env create -f environment.yaml
 $ conda activate sigsvgd
 $ pip install -e .
+$ pip install pytorch_lightning==2.2.0 --no-deps
 ```
 > **NOTE**: In macOs, the following extra steps are required to install `signatory`.
 >
