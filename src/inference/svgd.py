@@ -9,8 +9,7 @@ from ..kernels import BaseKernel, GaussianKernel
 
 
 class SVGD:
-    """An implementation of Stein variational gradient descent that supports custom kernels.
-    """
+    """An implementation of Stein variational gradient descent that supports custom kernels."""
 
     def __init__(
         self,
@@ -80,8 +79,7 @@ class SVGD:
             score = score + log_prior_grad.detach().flatten(1)
             X.detach_()
 
-        # velocity = (k_xx @ score - grad_k) / X.shape[0]
-        velocity = (score.T @ k_xx - grad_k.T) / X.shape[0]
+        velocity = (k_xx @ score - grad_k) / X.shape[0]
         velocity = -velocity.reshape(X.shape)
 
         iter_dict = {"k_xx": k_xx, "grad_k": grad_k, "loss": loss}
@@ -111,7 +109,7 @@ class SVGD:
             grad, iter_dict = self._velocity(X, grad_log_p, **kwargs)
             if self.opt_adagrad:  # compute simple Adagrad
                 # update sum of gradient's square
-                self.opt_inertia += grad ** 2
+                self.opt_inertia += grad**2
                 grad = grad / torch.sqrt(self.opt_inertia + 1e-12)
             iter_dict["grad"] = grad.cpu()
             X = X - self.opt_args["lr"] * grad
@@ -257,8 +255,7 @@ class ScaledSVGD(SVGD):
         return velocity, iter_dict
 
     def _psd_estimate_gn_hessian(self, jacobian, eps=1e-3):
-        """Computes a Gauss Newton approximation of the Hessian matrix, given the Jacobian.
-        """
+        """Computes a Gauss Newton approximation of the Hessian matrix, given the Jacobian."""
         avg_hess = torch.mean(2 * jacobian[:, :, None] * jacobian[:, None, :], dim=0)
         # eig, _ = torch.linalg.eig(avg_hess)
         # if eig.real.min() < 0:
