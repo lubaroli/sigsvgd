@@ -6,7 +6,7 @@ import setuptools
 here = os.path.realpath(os.path.dirname(__file__))
 
 
-name = "stein_mpc"
+name = "sigsvgd"
 
 # we actually store the version in the __version__ attribute in the source
 with io.open(os.path.join(here, name, "__init__.py")) as f:
@@ -28,7 +28,7 @@ description = (
 with io.open(os.path.join(here, "README.md"), "r", encoding="utf-8") as f:
     readme = f.read()
 
-url = "https://github.com/lubaroli/stein_mpc"
+url = "https://github.com/lubaroli/sigsvgd"
 
 license = "GPL-3"
 
